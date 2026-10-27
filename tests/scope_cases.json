@@ -1,0 +1,19 @@
+[
+ {"path":"inventory/store.py","allowed":["inventory/store.py"],"forbidden":[],"ok":true},
+ {"path":"inventory/api.py","allowed":["inventory/store.py"],"forbidden":[],"ok":false},
+ {"path":"src/a/b/c.py","allowed":["src/**/*.py"],"forbidden":[],"ok":true},
+ {"path":"src/c.py","allowed":["src/**/*.py"],"forbidden":[],"ok":true},
+ {"path":"src/a/c.txt","allowed":["src/**/*.py"],"forbidden":[],"ok":false},
+ {"path":"tests/test_x.py","allowed":["tests/"],"forbidden":[],"ok":true},
+ {"path":"src/secret.py","allowed":["src/**"],"forbidden":["src/secret.py"],"ok":false},
+ {"path":".evolution/rules.md","allowed":["**"],"forbidden":[],"ok":false},
+ {"path":".git/config","allowed":["**"],"forbidden":[],"ok":false},
+ {"path":"../outside.py","allowed":["**"],"forbidden":[],"ok":false},
+ {"path":"/etc/passwd","allowed":["**"],"forbidden":[],"ok":false},
+ {"path":"C:\\Windows\\x.py","allowed":["**"],"forbidden":[],"ok":false},
+ {"path":"./inventory/../inventory/store.py","allowed":["inventory/store.py"],"forbidden":[],"ok":true},
+ {"path":"inventory\\store.py","allowed":["inventory/store.py"],"forbidden":[],"ok":true},
+ {"path":"a/b.py","allowed":["a/*.py"],"forbidden":[],"ok":true},
+ {"path":"a/x/b.py","allowed":["a/*.py"],"forbidden":[],"ok":false},
+ {"path":"x.py","allowed":[],"forbidden":[],"ok":false}
+]

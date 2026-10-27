@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ECP-Governed Evolution</title>
+<style>
+:root{--bg:#0a1222;--card:#111d38;--card2:#0d1730;--ink:#e8eefb;--mut:#8ea2c6;--line:#26365a;--gf:#3cc8f5;--gfbg:#0a2b44;--ecp:#5b8cff;--ok:#4cd19a;--bad:#ff6b6b;--warn:#f5b93c;--add:#123a2c;--del:#451c24}
+@media (prefers-color-scheme: light){:root{--bg:#f4f7fc;--card:#fff;--card2:#eef2fa;--ink:#0f1a2e;--mut:#566582;--line:#d3dcee;--gf:#0b7fa6;--gfbg:#e6f6fb;--ecp:#2456c9;--ok:#17855a;--bad:#c93a3a;--warn:#a86f00;--add:#dcf3e8;--del:#fbe0e3}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14.5px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+header{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;padding:12px 20px;border-bottom:1px solid var(--line);background:var(--card2)}
+h1{font-size:18px;margin:0;letter-spacing:.01em}
+.chip{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:1px 10px;font-size:12px;color:var(--mut)}
+.chip b{color:var(--ink);font-weight:600}
+.grow{flex:1}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--mut);margin-right:6px}
+.dot.live{background:var(--ok);box-shadow:0 0 0 0 var(--ok);animation:pulse 1.6s infinite}
+@keyframes pulse{70%{box-shadow:0 0 0 8px transparent}100%{box-shadow:0 0 0 0 transparent}}
+.runbox{display:flex;flex-wrap:wrap;gap:8px;padding:12px 20px;border-bottom:1px solid var(--line)}
+.runbox textarea{flex:1 1 380px;min-height:44px;max-height:110px;background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:inherit;resize:vertical}
+select,button{font:inherit;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:8px 14px;cursor:pointer}
+button.primary{background:var(--ecp);border-color:var(--ecp);color:#fff;font-weight:600}
+button.gf{background:var(--gf);border-color:var(--gf);color:#04202e;font-weight:600}
+button:disabled{opacity:.5;cursor:default}
+#banner{display:none;margin:12px 20px 0;padding:12px 16px;border-radius:10px;border:1px solid var(--warn);background:rgba(245,185,60,.12)}
+#banner button{margin-left:8px}
+.layout{display:grid;grid-template-columns:260px 1fr;gap:16px;padding:16px 20px 60px}
+@media (max-width:860px){.layout{grid-template-columns:1fr}}
+aside .item{padding:9px 11px;border:1px solid var(--line);border-radius:10px;margin-bottom:8px;cursor:pointer;background:var(--card)}
+aside .item.sel{border-color:var(--ecp);box-shadow:0 0 0 1px var(--ecp)}
+aside .t{font-weight:600}
+.pill{display:inline-block;border-radius:999px;padding:0 9px;font-size:11.5px;font-weight:700;letter-spacing:.03em}
+.accepted{background:var(--ok);color:#04251a}.rolled_back,.rejected{background:var(--bad);color:#2a0606}.running{background:var(--warn);color:#2a1d00}
+h3{margin:0 0 6px;font-size:11.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--mut);font-weight:700}
+.hint{color:var(--mut);font-size:13px}
+.stepper{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:12px}
+.step{border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--card);position:relative}
+.step .n{font-weight:700}.step .w{font-size:12px;color:var(--mut)}
+.step.done{border-color:var(--ok)}.step.done .n::before{content:"✔ ";color:var(--ok)}
+.step.active{border-color:var(--ecp);box-shadow:0 0 0 1px var(--ecp)}.step.active .n::before{content:"● ";color:var(--ecp)}
+.step.fail{border-color:var(--bad)}.step.fail .n::before{content:"✖ ";color:var(--bad)}
+.step.gfstep .w{color:var(--gf)}
+.replay{display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+.replay input[type=range]{flex:1;min-width:160px}
+.replay button{padding:5px 12px}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:12px;flex-wrap:wrap}
+.tabs button{border:0;border-bottom:2px solid transparent;border-radius:0;background:none;color:var(--mut);padding:7px 12px}
+.tabs button.on{color:var(--ink);border-color:var(--ecp);font-weight:600}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:12px}
+.card.gf{border-left:4px solid var(--gf)}
+.card.new{animation:fadein .5s}
+@keyframes fadein{from{opacity:0;transform:translateY(6px)}}
+code,pre{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12.5px}
+pre{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;overflow:auto;max-height:360px;margin:8px 0 0;white-space:pre-wrap;word-break:break-word}
+.tag{display:inline-block;background:var(--card2);border:1px solid var(--line);border-radius:6px;padding:0 7px;margin:2px 4px 2px 0;font-family:ui-monospace,Consolas,monospace;font-size:12px}
+.tag.no{border-color:var(--bad);color:var(--bad)}.tag.yes{border-color:var(--ok);color:var(--ok)}
+.rev{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:8px}
+.rv{border:1px solid var(--line);border-radius:9px;padding:8px 10px;background:var(--gfbg)}
+.rv .nm{font-weight:700;color:var(--gf)}.rv.bad{border-color:var(--bad)}.rv.warn{border-color:var(--warn)}.rv.ok{border-color:var(--ok)}
+.sev{font-weight:800;font-size:11.5px;letter-spacing:.04em}.sev.blocker{color:var(--bad)}.sev.major{color:var(--warn)}.sev.nit{color:var(--mut)}
+.ins{background:var(--warn);color:#2a1d00;border-radius:4px;padding:0 5px;font-size:11px;font-weight:700;margin-right:4px}
+.act{display:flex;gap:8px;padding:3px 0;border-top:1px solid var(--line)}.act:first-of-type{border-top:0}
+.blocked{color:var(--bad);font-weight:700}
+.diff .a{background:var(--add);display:block}.diff .d{background:var(--del);display:block}.diff .m{color:var(--mut);display:block}.diff .c{display:block}
+.banner-out{font-size:18px;font-weight:700;display:flex;gap:12px;align-items:center}
+table{border-collapse:collapse;width:100%}td,th{border-top:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}th{color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.06em;border-top:0}
+.good{color:var(--ok);font-weight:600}.badc{color:var(--bad);font-weight:600}
+.ev{font-family:ui-monospace,Consolas,monospace;font-size:12px;border-top:1px solid var(--line);padding:4px 0}.ev .k{color:var(--ecp);font-weight:700}
+details summary{cursor:pointer;color:var(--mut)}
+#log{max-height:200px}
+</style>
+</head>
+<body>
+<header>
+  <h1>ECP-Governed Evolution</h1>
+  <span class="chip">repo <b id="repo">-</b></span>
+  <span class="chip">AI <b id="prov">-</b></span>
+  <span class="chip">builder <b id="pi">-</b></span>
+  <span class="chip">sandbox <b id="sbx">-</b></span>
+  <span class="grow"></span>
+  <span class="hint"><span class="dot" id="livedot"></span><span id="livetxt">idle</span></span>
+</header>
+
+<div class="runbox">
+  <textarea id="req" placeholder="Describe a change: a bug to fix, a feature, an enhancement..."></textarea>
+  <select id="scen" style="display:none"></select>
+  <button class="primary" id="run">Run governed evolution</button>
+  <button class="gf" id="cmp" title="Run the same request with a plain agent (no ECP) and with governance, then compare">Compare: plain vs governed</button>
+  <button id="reset" style="display:none">Reset demo repo</button>
+</div>
+<div id="banner"><b id="bq"></b> <button class="primary" id="yes">Approve</button><button id="no">Decline</button></div>
+
+<div class="layout">
+  <aside>
+    <h3>Evolutions</h3>
+    <div id="list"></div>
+    <h3 style="margin-top:16px">Memory (history)</h3>
+    <div id="hist" class="hint">none yet</div>
+  </aside>
+  <main>
+    <div id="stepper" class="stepper"></div>
+    <div class="replay">
+      <button id="live">● Live</button>
+      <button id="play">▶ Replay</button>
+      <input type="range" id="slider" min="0" max="0" value="0">
+      <span class="hint" id="pos"></span>
+    </div>
+    <div class="tabs" id="tabs"></div>
+    <div id="view"></div>
+    <details style="margin-top:14px"><summary>Run console</summary><pre id="log"></pre></details>
+  </main>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const get = async u => (await fetch(u, {cache:"no-store"})).json();
+const post = async (u, b) => (await fetch(u, {method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify(b||{})})).json();
+
+const ROSTER = {
+  before: ["comprehension","intent_fit","verification","scope_rules","readiness"],
+  beforeExtra: {bug:["root_cause"], feature:["impact"], enhancement:["impact"], refactor:["behavior_preserved"]},
+  after: ["conformance","correctness"],
+  afterExtra: {feature:["security"], enhancement:["security","performance"], bug:[], refactor:[]},
+};
+const LABEL = {comprehension:"Comprehension",intent_fit:"Intent fit",verification:"Verification",scope_rules:"Scope & rules",readiness:"Readiness",root_cause:"Root cause",impact:"Impact",behavior_preserved:"Behavior preserved",conformance:"Conformance",correctness:"Correctness",security:"Security",performance:"Performance",completeness:"Completeness"};
+
+let S = {ov:null, live:null, sel:null, detail:null, n:0, follow:true, tab:"story", timer:null, planTab:null, lastSig:""};
+
+function planAt(detail, entries) {
+  let v = 0;
+  for (const e of entries) if ((e.kind==="draft"||e.kind==="revised") && e.data.version) v = e.data.version;
+  return v ? detail.versions.find(x => x.n === v) : null;
+}
+function lcsDiff(a, b) {
+  const A=a.split("\n"), B=b.split("\n"), m=A.length, n=B.length;
+  const L=Array.from({length:m+1},()=>new Array(n+1).fill(0));
+  for(let i=m-1;i>=0;i--)for(let j=n-1;j>=0;j--)L[i][j]=A[i]===B[j]?L[i+1][j+1]+1:Math.max(L[i+1][j],L[i][j+1]);
+  const out=[];let i=0,j=0;
+  while(i<m&&j<n){if(A[i]===B[j]){out.push(["c",A[i]]);i++;j++}else if(L[i+1][j]>=L[i][j+1]){out.push(["d",A[i]]);i++}else{out.push(["a",B[j]]);j++}}
+  while(i<m)out.push(["d",A[i++]]);while(j<n)out.push(["a",B[j++]]);
+  return out;
+}
+const diffHtml = lines => `<pre class="diff">${lines.map(([t,x])=>`<span class="${t}">${t==="a"?"+ ":t==="d"?"- ":"  "}${esc(x)}</span>`).join("")}</pre>`;
+const gitDiffHtml = d => `<pre class="diff">${esc(d).split("\n").map(l=>{const c=l.startsWith("+")&&!l.startsWith("+++")?"a":l.startsWith("-")&&!l.startsWith("---")?"d":/^(diff|index|@@|---|\+\+\+)/.test(l)?"m":"c";return `<span class="${c}">${l}</span>`}).join("")}</pre>`;
+
+function steps(entries) {
+  const has = k => entries.some(e => e.kind === k);
+  const dec = entries.filter(e => e.kind === "decision").pop();
+  const out = dec ? dec.data.outcome : "";
+  const planOnly = out === "rejected";
+  const defs = [
+    {n:"1 Plan", w:"Elephant", done:has("draft")},
+    {n:"2 Review", w:"Goldfish", done:has("gate_plan"), gf:true},
+    {n:"3 Build", w:"Pi + guard", done:has("verify")},
+    {n:"4 Verify", w:"tests + Goldfish", done:has("review_after"), gf:true},
+    {n:"5 Decide", w:"gate", done:!!dec},
+  ];
+  let activeSet = false;
+  return defs.map((d,i) => {
+    let cls = d.done ? "done" : "";
+    if (!d.done && !dec && !activeSet) { cls = "active"; activeSet = true; }
+    if (out === "rolled_back") { if (i===4) cls = "fail"; if (i===3 && verifyBad(entries)) cls = "fail"; }
+    if (planOnly && i===1) cls = "fail";
+    if (planOnly && i>1) cls = "";
+    return `<div class="step ${cls} ${d.gf?"gfstep":""}"><div class="n">${d.n}</div><div class="w">${d.w}</div></div>`;
+  }).join("");
+}
+const verifyBad = entries => { const v = entries.filter(e=>e.kind==="verify").pop(); return v && !v.data.ok; };
+
+function reviewCards(findings, roster) {
+  const by = {};
+  findings.forEach(f => (by[f.reviewer] ||= []).push(f));
+  const names = [...roster, ...Object.keys(by).filter(k => !roster.includes(k))];
+  return `<div class="rev">` + names.map(nm => {
+    const fs = by[nm] || [];
+    const worst = fs.some(f=>f.severity==="blocker") ? "bad" : fs.some(f=>f.severity==="major") ? "warn" : fs.length ? "ok" : "ok";
+    const body = fs.length ? fs.map(f => `<div style="margin-top:4px"><span class="sev ${f.severity}">${f.severity.toUpperCase()}</span> ${f.claim.startsWith("INSUFFICIENT CONTEXT")?'<span class="ins">NEEDS CONTEXT</span>':""}${esc(f.claim)}${f.suggested_fix?`<div class="hint">Suggested: ${esc(f.suggested_fix)}</div>`:""}</div>`).join("") : `<div class="good">✔ no findings</div>`;
+    return `<div class="rv ${worst}"><div class="nm">${esc(LABEL[nm]||nm)}</div>${body}</div>`;
+  }).join("") + `</div>`;
+}
+
+function story(detail, entries, ct) {
+  const h = [];
+  const req = entries.find(e => e.kind === "request");
+  if (req) h.push(`<div class="card"><h3>Request</h3>${esc(req.data.text)}</div>`);
+  const plan = planAt(detail, entries);
+  if (plan) {
+    const f = plan.fields, locked = entries.some(e=>e.kind==="status" && e.data.to==="approved");
+    const lockHash = (entries.filter(e=>e.kind==="status" && e.data.to==="approved").pop()||{data:{}}).data.plan_hash;
+    h.push(`<div class="card"><h3>1 · Plan by Elephant — the ECP (version ${plan.n})${locked?` · <span class="good">LOCKED</span> <code>${esc(lockHash)}</code>`:""}</h3>
+      <div style="font-size:16px;font-weight:600">${esc(f.title)} <span class="chip">${esc(f.change_type)}</span> <span class="chip">risk ${esc(f.risk)}</span></div>
+      <p style="margin:6px 0"><b>Intent.</b> ${esc(f.intent)}</p>
+      <div><b>May edit:</b> ${(f.allowed_paths||[]).map(p=>`<span class="tag yes">${esc(p)}</span>`).join("")||"—"}</div>
+      <div><b>Must not touch:</b> ${(f.forbidden_paths||[]).map(p=>`<span class="tag no">${esc(p)}</span>`).join("")||"—"} <span class="tag no">.git/ .evolution/ (always)</span></div>
+      <div style="margin-top:6px"><b>Success criteria</b><ul style="margin:4px 0 0">${(f.success_criteria||[]).map(c=>`<li>${esc(c)}</li>`).join("")}</ul></div>
+      <div class="hint" style="margin-top:6px">${plan.n>1?"The plan changed since version 1 — see the Plan tab for the exact difference.":""}</div></div>`);
+  }
+  entries.forEach((e,i) => {
+    const d = e.data, fresh = i === entries.length-1 ? "new" : "";
+    if (e.kind === "review_before") {
+      const ct0 = ct, roster = [...ROSTER.before, ...(ROSTER.beforeExtra[ct0]||[])];
+      h.push(`<div class="card gf ${fresh}"><h3>2 · Review by Goldfish — round ${d.round} <span class="hint">(reviewers see only the ECP, the rules and the files it names)</span></h3>${reviewCards(d.findings, roster)}</div>`);
+    } else if (e.kind === "revised") {
+      h.push(`<div class="card ${fresh}"><h3>Elephant revised the plan → version ${d.version}</h3>New allowed paths: ${(d.allowed_paths||[]).map(p=>`<span class="tag">${esc(p)}</span>`).join("")}</div>`);
+    } else if (e.kind === "gate_plan") {
+      h.push(`<div class="card ${fresh}"><h3>Risk gate (plan)</h3>${d.go?'<span class="good">Go</span>':'<span class="badc">Stop</span>'} — ${esc(d.how)} · risk <b>${esc(d.risk)}</b></div>`);
+    }
+  });
+  const acts = entries.filter(e => e.kind === "pi_action");
+  if (acts.length) h.push(`<div class="card ${entries[entries.length-1].kind==="pi_action"?"new":""}"><h3>3 · Build by Pi — every action passes the guard</h3>` +
+    acts.map(a => `<div class="act">${a.data.allowed?'<span class="good">✔ allowed</span>':'<span class="blocked">✖ BLOCKED</span>'}<span>${esc(a.data.tool)}</span><code>${esc(a.data.path)}</code>${a.data.allowed?"":`<span class="hint">${esc(a.data.reason)}</span>`}</div>`).join("") + `</div>`);
+  entries.filter(e => e.kind === "pi_error").forEach(e => h.push(`<div class="card"><h3>Pi problem</h3><pre>${esc(e.data.error)}</pre></div>`));
+  entries.filter(e => e.kind === "verify").forEach(e => {
+    const d = e.data, fb = d.fail_before || {status:"skipped"};
+    const fbTxt = {proved:'<span class="good">PROVED</span> — the new tests fail on the old code and pass on the new code', not_proved:'<span class="badc">NOT PROVED</span> — '+esc(fb.note||""), no_tests:'<span class="badc">NO TEST ADDED</span> — '+esc(fb.note||""), skipped:'<span class="hint">not required for this change type</span>'}[fb.status] || "";
+    h.push(`<div class="card"><h3>4 · Verify — tests, scope check, fail-before proof (plain programs, no AI)</h3>
+      <div>${d.ok?'<span class="good">All checks passed</span>':'<span class="badc">Checks failed</span>'}: ${esc(d.summary)}</div>
+      <div style="margin-top:4px"><b>Fail-before / pass-after:</b> ${fbTxt}</div>
+      <div class="hint" style="margin-top:4px">Files changed: ${(d.changed_files||[]).map(f=>`<span class="tag">${esc(f)}</span>`).join("")||"none"}</div>
+      ${d.diff?`<details open><summary>Code diff</summary>${gitDiffHtml(d.diff)}</details>`:""}
+      ${d.test_tail?`<details><summary>Test output</summary><pre>${esc(d.test_tail)}</pre></details>`:""}</div>`);
+  });
+  entries.filter(e => e.kind === "review_after").forEach(e => h.push(`<div class="card gf"><h3>5 · Result checked by Goldfish <span class="hint">(correctness may run on a different model)</span></h3>${reviewCards(e.data.findings, [...ROSTER.after, ...(ROSTER.afterExtra[ct]||[])])}</div>`));
+  const dec = entries.filter(e => e.kind === "decision").pop();
+  if (dec) {
+    const o = dec.data.outcome;
+    h.push(`<div class="card new"><h3>Decision</h3><div class="banner-out"><span class="pill ${o}">${o.toUpperCase().replace("_"," ")}</span><span>${o==="accepted"?"Change merged. Plan, evidence and diff are saved in the repo.":o==="rolled_back"?"Change undone. The repo is exactly as before; the record stays.":"Plan was not approved, so no code was touched."}</span></div>${(dec.data.reasons||[]).map(r=>`<div>• ${esc(r)}</div>`).join("")}</div>`);
+  }
+  if (!h.length) h.push(`<div class="card hint">Nothing here yet. Type a request above and press <b>Run governed evolution</b>.</div>`);
+  return h.join("");
+}
+
+function planTab(detail, entries) {
+  const vs = detail.versions;
+  if (!vs.length) return `<div class="card hint">No plan yet.</div>`;
+  const out = [`<div class="card"><h3>The plan evolving</h3><div class="hint">Every version of the ECP is kept. Red lines were removed, green lines were added after reviewers found problems.</div></div>`];
+  for (let i = 1; i < vs.length; i++) {
+    const rnd = entries.find(e => e.kind==="revised" && e.data.version===vs[i].n);
+    out.push(`<div class="card"><h3>Version ${vs[i-1].n} → ${vs[i].n}</h3>${diffHtml(lcsDiff(vs[i-1].text, vs[i].text))}</div>`);
+  }
+  if (vs.length === 1) out.push(`<div class="card"><h3>Version 1 (never revised)</h3><pre>${esc(vs[0].text)}</pre></div>`);
+  return out.join("");
+}
+
+function evidenceTab(detail, entries) {
+  return `<div class="card"><h3>Evidence trail — append-only, hash-chained · chain ${detail.chain_intact?'<span class="good">intact</span>':'<span class="badc">BROKEN</span>'}</h3>
+    <div class="hint">File: .evolution/evidence/${esc(detail.id)}.jsonl</div>` +
+    entries.map(e => `<div class="ev"><span class="hint">${esc(e.time.slice(11))}</span> <span class="k">${esc(e.kind)}</span> <span class="hint">#${esc(e.hash)}</span> ${esc(JSON.stringify(e.data)).slice(0,260)}</div>`).join("") + `</div>`;
+}
+
+async function filesTab() {
+  const names = [["ECP file", "ecp:"+S.sel], ["config.yaml","config"], ["rules.md","rules"], ["history.jsonl","history"]];
+  const parts = await Promise.all(names.map(async ([t,k]) => `<div class="card"><h3>${esc(t)}</h3><pre>${esc((await get("/api/file?name="+encodeURIComponent(k))).text || "(empty)")}</pre></div>`));
+  return `<div class="hint" style="margin-bottom:8px">These are the real files in the repo under <code>.evolution/</code>.</div>` + parts.join("");
+}
+
+function compareTab() {
+  const c = S.ov && S.ov.compare;
+  if (!c) return `<div class="card hint">No comparison yet. Type a request and press <b>Compare: plain vs governed</b>. The same request is run twice: once with a plain agent (no plan, no review, no limits), once governed.</div>`;
+  const p = c.plain, g = c.governed, yn = b => b ? '<span class="good">yes</span>' : '<span class="badc">no</span>';
+  return `<div class="card"><h3>Same request, with and without governance</h3><div>${esc(c.request)}</div>
+    <table style="margin-top:8px"><tr><th></th><th>Plain agent</th><th>Governed (ECP)</th></tr>
+    <tr><td>Written plan before changing code</td><td>${yn(p.had_plan)}</td><td>${yn(g.had_plan)}</td></tr>
+    <tr><td>Independent review of the plan</td><td>${yn(p.had_review)}</td><td>${yn(g.had_review)} (${g.rounds} round${g.rounds===1?"":"s"})</td></tr>
+    <tr><td>Edits limited to declared files</td><td>${yn(p.had_scope_limit)}</td><td>${yn(g.had_scope_limit)} (${g.blocked_attempts.length} blocked)</td></tr>
+    <tr><td>Files it changed</td><td>${p.changed_files.map(f=>`<span class="tag ${c.plain_outside_governed_scope.includes(f)?"no":""}">${esc(f)}</span>`).join("")||"none"}</td><td>${g.allowed_paths.map(f=>`<span class="tag yes">${esc(f)}</span>`).join("")}</td></tr>
+    <tr><td>Changes outside what the task needed</td><td class="${c.plain_outside_governed_scope.length?"badc":"good"}">${c.plain_outside_governed_scope.length}</td><td class="good">0</td></tr>
+    <tr><td>Proof the new test fails on old code</td><td>not checked</td><td>checked</td></tr>
+    <tr><td>Permanent record of what and why</td><td>${yn(p.had_record)}</td><td>${yn(g.had_record)}</td></tr>
+    <tr><td>Result</td><td class="${p.tests_ok?"good":"badc"}">tests ${p.tests_ok?"pass":"FAIL"} · nobody reviewed it</td><td><span class="pill ${g.outcome}">${g.outcome.toUpperCase().replace("_"," ")}</span></td></tr></table></div>`;
+}
+
+const TABS = [["story","Story"],["plan","Plan versions"],["evidence","Evidence log"],["files","Repo files"],["compare","Plain vs governed"]];
+async function render() {
+  const ov = S.ov; if (!ov) return;
+  $("repo").textContent = ov.repo; $("prov").textContent = ov.config.provider||"-"; $("pi").textContent = ov.config.pi||"-"; $("sbx").textContent = ov.config.sandbox||"none";
+  $("list").innerHTML = ov.ecps.length ? ov.ecps.map(e => `<div class="item ${e.id===S.sel?"sel":""}" data-id="${e.id}"><div class="t">${esc(e.id)} <span class="pill ${e.outcome||"running"}">${esc((e.outcome||e.status).toUpperCase().replace("_"," "))}</span></div><div>${esc(e.title)}</div><div class="hint">${esc(e.change_type)} · ${e.events} events</div></div>`).join("") : `<div class="hint">none yet</div>`;
+  $("list").querySelectorAll(".item").forEach(el => el.onclick = () => { S.sel = el.dataset.id; S.follow = true; S.lastSig=""; refresh(); });
+  $("hist").innerHTML = ov.history.length ? ov.history.map(h => `<div style="margin-bottom:4px"><b>${esc(h.id)}</b> <span class="${h.outcome==="accepted"?"good":"badc"}">${esc(h.outcome)}</span><div class="hint">${esc(h.summary).slice(0,90)}</div></div>`).join("") : "none yet";
+  $("tabs").innerHTML = TABS.map(([k,t]) => `<button class="${S.tab===k?"on":""}" data-k="${k}">${t}</button>`).join("");
+  $("tabs").querySelectorAll("button").forEach(b => b.onclick = () => { S.tab = b.dataset.k; render(); });
+  const d = S.detail;
+  const total = d ? d.evidence.length : 0;
+  $("slider").max = total; if (S.follow) S.n = total;
+  $("slider").value = S.n; $("pos").textContent = d ? `${S.n} / ${total} events` : "";
+  $("live").style.opacity = S.follow ? 1 : .55;
+  const entries = d ? d.evidence.slice(0, S.n) : [];
+  $("stepper").innerHTML = steps(entries);
+  let ct = ((d && planAt(d, entries)) || {fields:{}}).fields.change_type || "bug";
+  let html = "";
+  if (S.tab === "story") html = d ? story(d, entries, ct) : story({versions:[]}, [], "bug");
+  else if (S.tab === "plan") html = d ? planTab(d, entries) : "";
+  else if (S.tab === "evidence") html = d ? evidenceTab(d, entries) : "";
+  else if (S.tab === "files") html = d ? await filesTab() : `<div class="card hint">No ECP yet.</div>`;
+  else html = compareTab();
+  const sig = S.tab + "|" + S.sel + "|" + S.n + "|" + html.length;
+  if (sig !== S.lastSig) { S.lastSig = sig; $("view").innerHTML = html; }
+}
+
+async function refresh() {
+  try {
+    const [ov, live] = await Promise.all([get("/api/overview"), get("/api/live")]);
+    S.ov = ov; S.live = live;
+    if (ov.ecps.length) { const newest = ov.ecps[ov.ecps.length-1].id; if (!S.sel || (live.running && S.follow && S.sel !== newest)) S.sel = newest; }
+    S.detail = S.sel ? await get("/api/ecp/" + S.sel) : null;
+    $("livedot").className = "dot" + (live.running ? " live" : ""); $("livetxt").textContent = live.running ? "run in progress" : "idle";
+    $("log").textContent = live.log || ""; $("log").scrollTop = $("log").scrollHeight;
+    const pa = live.pending_approval; $("banner").style.display = pa ? "block" : "none"; if (pa) $("bq").textContent = "Human approval needed: " + pa.question;
+    $("run").disabled = $("cmp").disabled = live.running;
+    $("scen").style.display = ov.demo ? "" : "none"; $("reset").style.display = ov.demo ? "" : "none";
+    if (ov.demo && $("scen").options.length !== ov.scenarios.length) $("scen").innerHTML = `<option value="">(type my own request)</option>` + ov.scenarios.map(s => `<option>${s}</option>`).join("");
+    await render();
+  } catch (e) { $("livetxt").textContent = "dashboard offline: " + e; }
+}
+
+async function start(kind) {
+  const r = await post(kind, {request: $("req").value, scenario: $("scen").value || null});
+  if (r.error) return alert(r.error);
+  if (kind === "/api/compare") S.tab = "compare";
+  S.follow = true; S.lastSig = ""; if (kind === "/api/start") S.tab = "story"; refresh();
+}
+$("run").onclick = () => start("/api/start");
+$("cmp").onclick = () => start("/api/compare");
+$("reset").onclick = async () => { const r = await post("/api/reset"); if (r.error) alert(r.error); S.sel = null; S.detail = null; S.lastSig = ""; refresh(); };
+$("yes").onclick = () => post("/api/approve", {approve:true}).then(refresh);
+$("no").onclick = () => post("/api/approve", {approve:false}).then(refresh);
+$("live").onclick = () => { S.follow = true; clearInterval(S.timer); S.timer = null; $("play").textContent = "▶ Replay"; refresh(); };
+$("slider").oninput = e => { S.follow = false; S.n = +e.target.value; clearInterval(S.timer); S.timer = null; $("play").textContent = "▶ Replay"; render(); };
+$("play").onclick = () => {
+  if (S.timer) { clearInterval(S.timer); S.timer = null; $("play").textContent = "▶ Replay"; return; }
+  S.follow = false; if (S.n >= (S.detail ? S.detail.evidence.length : 0)) S.n = 0;
+  $("play").textContent = "❚❚ Pause";
+  S.timer = setInterval(() => { const tot = S.detail.evidence.length; if (S.n >= tot) { clearInterval(S.timer); S.timer = null; $("play").textContent = "▶ Replay"; return; } S.n++; render(); }, 900);
+};
+refresh(); setInterval(() => { if (!S.timer) refresh(); }, 1200);
+</script>
+</body>
+</html>

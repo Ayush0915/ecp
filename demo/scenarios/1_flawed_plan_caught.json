@@ -1,0 +1,126 @@
+{
+ "request": "Bug report: after removing more items than we have, the stock level shows a negative number. Fix it.",
+ "elephant": [
+  {
+   "title": "Block negative stock in the API",
+   "change_type": "bug",
+   "intent": "Stop the stock endpoint from returning a negative level.",
+   "allowed_paths": [
+    "inventory/api.py"
+   ],
+   "forbidden_paths": [],
+   "constraints": [
+    "Do not change public function names",
+    "A bug fix must come with a test that fails before the fix",
+    "Do not add dependencies"
+   ],
+   "success_criteria": [
+    "POST /stock/remove returns 400 when it would go below zero"
+   ],
+   "verification": [
+    {
+     "description": "Manual check of the endpoint",
+     "command": ""
+    }
+   ],
+   "abort_conditions": [
+    "Any existing test fails",
+    "A file outside the allowed paths needs to change"
+   ],
+   "rollback": "Discard branch evolve/<id>; no data migration is involved.",
+   "risk": "low",
+   "body": "## Approach\nIn the `/stock/remove` handler, read the level first and return 400 if it is lower than qty. No new tests needed."
+  },
+  {
+   "title": "Stop stock from going negative",
+   "change_type": "bug",
+   "intent": "Removing more units than are in stock must be rejected, so stock levels can never drop below zero, whoever calls the Store.",
+   "allowed_paths": [
+    "inventory/store.py",
+    "tests/test_store.py"
+   ],
+   "forbidden_paths": [
+    "inventory/api.py",
+    ".github/**"
+   ],
+   "constraints": [
+    "Do not change public function names",
+    "A bug fix must come with a test that fails before the fix",
+    "Do not add dependencies"
+   ],
+   "success_criteria": [
+    "remove_stock raises ValueError when qty is greater than the current level",
+    "The stock level is unchanged after a rejected removal",
+    "All existing tests still pass"
+   ],
+   "verification": [
+    {
+     "description": "New tests for over-removal pass and the old tests still pass",
+     "command": ""
+    }
+   ],
+   "abort_conditions": [
+    "Any existing test fails",
+    "A file outside the allowed paths needs to change"
+   ],
+   "rollback": "Discard branch evolve/<id>; no data migration is involved.",
+   "risk": "low",
+   "body": "## Root cause\n`Store.remove_stock` subtracts without checking the current level.\n\n## Approach\n1. In `remove_stock`, raise `ValueError` when the level is lower than `qty`.\n2. Add tests for over-removal and for an unknown SKU.\n3. The HTTP layer already turns `ValueError` into a 400, so it needs no change."
+  }
+ ],
+ "goldfish": [
+  {
+   "root_cause": [
+    {
+     "severity": "blocker",
+     "location": "ECP.allowed_paths",
+     "claim": "The bug lives in Store.remove_stock (it subtracts without checking). Fixing only the API handler leaves every other caller of Store able to push stock below zero.",
+     "suggested_fix": "Fix Store.remove_stock and allow inventory/store.py."
+    }
+   ],
+   "intent_fit": [
+    {
+     "severity": "major",
+     "location": "ECP.intent",
+     "claim": "The intent says 'stop the endpoint', but the real requirement is that stock can never be negative.",
+     "suggested_fix": "State the invariant on the Store, not on one endpoint."
+    }
+   ],
+   "verification": [
+    {
+     "severity": "major",
+     "location": "ECP.verification",
+     "claim": "'Manual check' proves nothing automatically and no failing-first test is required for a bug fix.",
+     "suggested_fix": "Require new automated tests."
+    }
+   ]
+  },
+  {}
+ ],
+ "goldfish_post": [
+  {
+   "correctness": [
+    {
+     "severity": "nit",
+     "location": "inventory/store.py",
+     "claim": "A dedicated InsufficientStock exception would read better than a bare ValueError.",
+     "suggested_fix": "Consider in a later ECP."
+    }
+   ]
+  }
+ ],
+ "pi_actions": [
+  {
+   "tool": "edit",
+   "path": "inventory/store.py",
+   "old": "        self._stock[sku] = self._stock.get(sku, 0) - qty\n        return self._stock[sku]",
+   "new": "        if self._stock.get(sku, 0) < qty:\n            raise ValueError(\"insufficient stock\")\n        self._stock[sku] = self._stock.get(sku, 0) - qty\n        return self._stock[sku]"
+  },
+  {
+   "tool": "edit",
+   "path": "tests/test_store.py",
+   "old": "        s.remove_stock(\"apple\", -1)\n",
+   "new": "        s.remove_stock(\"apple\", -1)\n\n\ndef test_remove_more_than_stock_is_rejected():\n    s = Store()\n    s.add_stock(\"apple\", 2)\n    with pytest.raises(ValueError):\n        s.remove_stock(\"apple\", 3)\n    assert s.level(\"apple\") == 2\n\n\ndef test_remove_unknown_sku_is_rejected():\n    s = Store()\n    with pytest.raises(ValueError):\n        s.remove_stock(\"ghost\", 1)\n    assert s.level(\"ghost\") == 0\n"
+  }
+ ]
+}

@@ -1,0 +1,10 @@
+# The box Pi works in. It can see only the folders we mount into it.
+FROM docker.io/library/node:22-bookworm-slim
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates git ripgrep \
+ && rm -rf /var/lib/apt/lists/*
+RUN npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+ENV HOME=/tmp/pihome
+RUN mkdir -p /tmp/pihome && chmod 777 /tmp/pihome
+WORKDIR /workspace
+ENTRYPOINT ["pi"]

@@ -1,0 +1,66 @@
+{
+ "request": "Enhancement: add a Store.low_stock(threshold) method that lists SKUs at or below a threshold.",
+ "elephant": [
+  {
+   "title": "Add low-stock report",
+   "change_type": "enhancement",
+   "intent": "Operators need a quick way to see which SKUs are running low, via Store.low_stock(threshold).",
+   "allowed_paths": [
+    "inventory/store.py",
+    "tests/test_store.py"
+   ],
+   "forbidden_paths": [
+    "inventory/api.py"
+   ],
+   "constraints": [
+    "Do not change existing method behavior",
+    "Do not add dependencies"
+   ],
+   "success_criteria": [
+    "low_stock(t) returns the SKUs whose level is <= t, sorted",
+    "Existing tests still pass"
+   ],
+   "verification": [
+    {
+     "description": "Existing and new tests pass",
+     "command": ""
+    }
+   ],
+   "abort_conditions": [
+    "Any existing test fails"
+   ],
+   "rollback": "Discard branch evolve/<id>.",
+   "risk": "low",
+   "body": "## Approach\nAdd `low_stock(threshold)` returning a sorted list of SKUs with level <= threshold. Add tests."
+  }
+ ],
+ "goldfish": [
+  {}
+ ],
+ "goldfish_post": [
+  {
+   "correctness": [
+    {
+     "severity": "blocker",
+     "location": "inventory/store.py",
+     "claim": "add_stock now multiplies the quantity by two, which changes existing behavior and contradicts the constraint 'Do not change existing method behavior'.",
+     "suggested_fix": "Restore add_stock and only add the new method."
+    }
+   ]
+  }
+ ],
+ "pi_actions": [
+  {
+   "tool": "edit",
+   "path": "inventory/store.py",
+   "old": "        self._stock[sku] = self._stock.get(sku, 0) + qty\n        return self._stock[sku]",
+   "new": "        self._stock[sku] = self._stock.get(sku, 0) + qty * 2\n        return self._stock[sku]"
+  },
+  {
+   "tool": "edit",
+   "path": "inventory/store.py",
+   "old": "    def level(self, sku: str) -> int:",
+   "new": "    def low_stock(self, threshold: int) -> list[str]:\n        return sorted(s for s, q in self._stock.items() if q <= threshold)\n\n    def level(self, sku: str) -> int:"
+  }
+ ]
+}

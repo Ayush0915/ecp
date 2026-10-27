@@ -1,0 +1,22 @@
+[project]
+name = "ecp-governed-evolution"
+version = "0.1.0"
+description = "Spec-governed controlled evolution: Elephant plans, Goldfish reviews, Pi builds, all under one ECP"
+requires-python = ">=3.10"
+dependencies = ["pydantic>=2", "pyyaml"]
+
+[project.optional-dependencies]
+dev = ["pytest", "fastapi", "httpx"]
+
+[project.scripts]
+evolve = "evolve.cli:main"
+
+[tool.setuptools]
+packages = ["evolve", "evolve.goldfish", "evolve.dashboard"]
+
+[tool.setuptools.package-data]
+"evolve.goldfish" = ["lenses/*.md"]
+"evolve.dashboard" = ["index.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
