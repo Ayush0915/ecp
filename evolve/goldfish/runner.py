@@ -12,6 +12,7 @@ is exactly what the reviewer knows (the "context contract").
 from __future__ import annotations
 
 import shutil
+import time
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -21,6 +22,7 @@ from pydantic import BaseModel, ValidationError
 
 from ..config import Config
 from ..ecp import ECP
+from ..live import emit
 from ..llm import LLM, extract_json
 from ..scope import matches
 
@@ -132,8 +134,16 @@ def review(llm: LLM, cfg: Config, repo: Path, ecp: ECP, phase: str, extra: dict[
         def one(lens: Lens) -> list[Finding]:
             system = COMMON + "\n\n" + (LENS_DIR / f"{lens.name}.md").read_text(encoding="utf-8")
             model = getattr(cfg.models, lens.model_key) or cfg.models.goldfish
-            raw = llm.complete(f"goldfish:{lens.name}", system, context_text, model)
-            return _parse(lens, raw)
+            emit(repo, "goldfish_start", lens=lens.name, phase=phase, model=cfg.models.resolve(lens.model_key))
+            t0 = time.time()
+            try:
+                raw = llm.complete(f"goldfish:{lens.name}", system, context_text, model)
+                found = _parse(lens, raw)
+            except Exception as e:  # noqa: BLE001
+                emit(repo, "goldfish_done", lens=lens.name, phase=phase, findings=[], error=str(e)[:300], seconds=round(time.time() - t0, 1))
+                raise
+            emit(repo, "goldfish_done", lens=lens.name, phase=phase, findings=[f.model_dump() for f in found], seconds=round(time.time() - t0, 1))
+            return found
 
         with ThreadPoolExecutor(max_workers=len(lenses)) as ex:
             results = list(ex.map(one, lenses))

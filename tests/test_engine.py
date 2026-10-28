@@ -134,19 +134,6 @@ def test_insufficient_context_finding_stops_the_plan(demo_repo):
 
 
 # ---------------------------------------------------------------- comparison + triggers
-def test_compare_shows_plain_agent_collateral_damage_and_leaves_repo_clean(demo_repo):
-    from evolve import compare as cmp
-    sc = scenario("2_scope_violation_blocked")
-    out = cmp.compare(demo_repo, sc["request"], MockLLM(sc), load_config(demo_repo), sc["plain_actions"], sc["pi_actions"])
-    assert not out["plain"]["tests_ok"] and "inventory/api.py" in out["plain"]["changed_files"]  # the unguarded agent broke the API
-    assert ".evolution/rules.md" in out["plain"]["changed_files"]
-    assert set(out["plain_outside_governed_scope"]) >= {"inventory/api.py", ".evolution/rules.md"}
-    assert out["governed"]["outcome"] == "accepted" and len(out["governed"]["blocked_attempts"]) == 2
-    assert "Anything goes" not in (demo_repo / ".evolution" / "rules.md").read_text()  # plain run was fully undone
-    assert (demo_repo / ".evolution" / "compare" / "latest.json").exists()
-    assert "PLAIN AGENT" in cmp.format_comparison(out)
-
-
 def test_failing_tests_trigger_builds_a_request(demo_repo):
     from evolve.cli import failing_tests_request
     (demo_repo / "tests" / "test_broken.py").write_text("def test_x():\n    assert 1 == 2\n")

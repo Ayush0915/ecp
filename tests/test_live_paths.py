@@ -1,5 +1,5 @@
 """The 'live' code paths, exercised against local stand-ins (no internet, no keys):
-  - a fake Azure OpenAI server (checks URL, auth header, body; replays a demo scenario)
+  - a fake Azure OpenAI server (checks URL, api-version, key or bearer token; replays a scripted scenario)
   - a fake `pi` program (checks how Pi is launched and how its action log is read back)
   - the exact podman command line
 """
@@ -25,15 +25,27 @@ LENS_NAMES = ["comprehension", "intent_fit", "verification", "scope_rules", "rea
               "behavior_preserved", "conformance", "correctness", "security", "performance"]
 
 
+AZURE_ENV = {"AZURE_OPENAI_BASE": "", "AZURE_OPENAI_DEPLOYMENT": "gpt-5.5", "AZURE_OPENAI_API_VERSION": "2024-10-21", "AZURE_OPENAI_API_KEY": "secret-key"}
+
+
 class FakeAzure(BaseHTTPRequestHandler):
+    """Azure OpenAI as the real service behaves: deployment in the URL, api-version in the query, key (or bearer token) in a header."""
     scenario_llm: MockLLM = None
     seen: list = []
 
     def log_message(self, *a): pass
 
     def do_POST(self):
-        body = json.loads(self.rfile.read(int(self.headers["content-length"])))
-        FakeAzure.seen.append({"path": self.path, "key": self.headers.get("api-key"), "model": body["model"]})
+        n = int(self.headers["content-length"])
+        raw = self.rfile.read(n)
+        if self.path.startswith("/tenant-1/oauth2/v2.0/token"):
+            form = dict(p.split("=", 1) for p in raw.decode().split("&"))
+            FakeAzure.seen.append({"path": self.path, "form": form})
+            out = json.dumps({"access_token": "entra-token-123", "expires_in": 3600}).encode()
+            self.send_response(200); self.send_header("content-length", str(len(out))); self.end_headers(); self.wfile.write(out)
+            return
+        body = json.loads(raw)
+        FakeAzure.seen.append({"path": self.path, "key": self.headers.get("api-key"), "auth": self.headers.get("authorization")})
         system, user = body["messages"][0]["content"], body["messages"][1]["content"]
         if system.startswith("You are Elephant"):
             role = "elephant:revise" if "YOUR CURRENT ECP" in user else "elephant:draft"
@@ -41,39 +53,91 @@ class FakeAzure(BaseHTTPRequestHandler):
             lens_dir = Path(__file__).resolve().parent.parent / "evolve" / "goldfish" / "lenses"
             role = "goldfish:" + next(n for n in LENS_NAMES if (lens_dir / f"{n}.md").read_text().strip() in system)
         text = FakeAzure.scenario_llm.complete(role, system, user)
-        out = json.dumps({"choices": [{"message": {"content": text}}]}).encode()
+        out = json.dumps({"choices": [{"message": {"content": text}, "finish_reason": "stop"}]}).encode()
         self.send_response(200); self.send_header("content-length", str(len(out))); self.end_headers(); self.wfile.write(out)
 
 
-def test_azure_provider_end_to_end_against_fake_server(demo_repo, monkeypatch):
-    sc = scenario("1_flawed_plan_caught")
-    FakeAzure.scenario_llm, FakeAzure.seen = MockLLM(sc), []
+@pytest.fixture
+def azure_server(monkeypatch):
     srv = HTTPServer(("127.0.0.1", 0), FakeAzure)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
-    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "secret-key")
-    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", f"http://127.0.0.1:{srv.server_port}")
-    p = demo_repo / ".evolution" / "config.yaml"
-    c = yaml.safe_load(p.read_text())
-    c["models"].update(provider="azure", elephant="gpt-5.5", goldfish="gpt-5.5", correctness="gpt-5.5", api_key_env="AZURE_OPENAI_API_KEY")
-    p.write_text(yaml.safe_dump(c))
-    cfg = load_config(demo_repo)
-    res = engine.run(demo_repo, sc["request"], make_llm(cfg), cfg, sc["pi_actions"], lambda q: True)
+    FakeAzure.seen = []
+    base = f"http://127.0.0.1:{srv.server_port}"
+    for k, v in {**AZURE_ENV, "AZURE_OPENAI_BASE": base}.items():
+        monkeypatch.setenv(k, v)
+    for k in ("AZURE_OPENAI_TENANTID", "AZURE_OPENAI_CLIENTID", "AZURE_OPENAI_CLIENTSECRET", "AZURE_OPENAI_ENDPOINT"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("AZURE_AUTHORITY_HOST", base)
+    yield base
     srv.shutdown()
-    assert res.outcome == "accepted" and res.rounds == 2          # same story as the offline demo, over HTTP
-    assert all(s["path"] == "/openai/v1/chat/completions" for s in FakeAzure.seen)
-    assert all(s["key"] == "secret-key" and s["model"] == "gpt-5.5" for s in FakeAzure.seen)
 
 
-def test_azure_requires_env(monkeypatch):
-    monkeypatch.delenv("AZURE_OPENAI_API_KEY", raising=False)
+def _azure_repo(demo_repo):
+    p = demo_repo / ".evolution" / "config.yaml"
+    c = yaml.safe_load(p.read_text()); c["models"]["provider"] = "azure"; p.write_text(yaml.safe_dump(c))
+    return load_config(demo_repo)
+
+
+def test_azure_end_to_end_with_api_key(demo_repo, azure_server):
+    sc = scenario("1_flawed_plan_caught")
+    FakeAzure.scenario_llm = MockLLM(sc)
+    cfg = _azure_repo(demo_repo)
+    res = engine.run(demo_repo, sc["request"], make_llm(cfg), cfg, sc["pi_actions"], lambda q: True)
+    assert res.outcome == "accepted" and res.rounds == 2          # same story as the scripted run, over HTTP
+    assert all(s["path"] == "/openai/deployments/gpt-5.5/chat/completions?api-version=2024-10-21" for s in FakeAzure.seen)
+    assert all(s["key"] == "secret-key" and s["auth"] is None for s in FakeAzure.seen)
+
+
+def test_azure_with_service_principal_gets_a_bearer_token_once(demo_repo, azure_server, monkeypatch):
+    from evolve import azure
+    azure._token_cache.update(key=None, expires=0)
+    monkeypatch.delenv("AZURE_OPENAI_API_KEY")
+    for k, v in {"AZURE_OPENAI_TENANTID": "tenant-1", "AZURE_OPENAI_CLIENTID": "cid", "AZURE_OPENAI_CLIENTSECRET": "csecret"}.items():
+        monkeypatch.setenv(k, v)
+    sc = scenario("2_scope_violation_blocked")
+    FakeAzure.scenario_llm = MockLLM(sc)
+    cfg = _azure_repo(demo_repo)
+    llm = make_llm(cfg)
+    llm.complete("elephant:draft", "You are Elephant, the planner", "x")
+    llm.complete("elephant:draft", "You are Elephant, the planner", "x")
+    tokens = [s for s in FakeAzure.seen if "form" in s]
+    assert len(tokens) == 1 and tokens[0]["form"]["client_id"] == "cid" and tokens[0]["form"]["grant_type"] == "client_credentials"
+    assert [s["auth"] for s in FakeAzure.seen if "auth" in s] == ["Bearer entra-token-123"] * 2 and all(s["key"] is None for s in FakeAzure.seen if "auth" in s)
+
+
+def test_azure_missing_settings_are_named(monkeypatch):
+    for k in AZURE_ENV | {"AZURE_OPENAI_ENDPOINT": ""}:
+        monkeypatch.delenv(k, raising=False)
     from evolve.config import Config
     cfg = Config(); cfg.models.provider = "azure"
-    with pytest.raises(RuntimeError, match="AZURE_OPENAI_API_KEY"):
+    with pytest.raises(RuntimeError, match="AZURE_OPENAI_BASE.*AZURE_OPENAI_DEPLOYMENT"):
         make_llm(cfg)
 
 
+def test_azure_base_is_tidied(monkeypatch):
+    from evolve import azure
+    monkeypatch.setenv("AZURE_OPENAI_BASE", "https://res.openai.azure.com/openai/v1/")
+    assert azure.settings().base == "https://res.openai.azure.com"
+    assert azure.chat_url(azure.settings(), "d1").startswith("https://res.openai.azure.com/openai/deployments/d1/chat/completions?api-version=")
+
+
+def test_pi_gets_an_azure_provider_file_and_it_is_removed_after_the_run(demo_repo, tmp_path, azure_server, monkeypatch):
+    from evolve import azure, pi_runner
+    cfg = load_config(demo_repo)
+    d = pi_runner.write_pi_provider(tmp_path, cfg)
+    prov = json.loads((d / "models.json").read_text())["providers"]["azure-evolve"]
+    assert prov["baseUrl"].endswith("/openai/v1") and prov["models"][0]["id"] == "gpt-5.5" and prov["headers"] == {"api-key": "secret-key"}
+    assert pi_runner.pi_model(cfg) == "azure-evolve/gpt-5.5"
+    azure._token_cache.update(key=None, expires=0)
+    monkeypatch.delenv("AZURE_OPENAI_API_KEY")
+    for k, v in {"AZURE_OPENAI_TENANTID": "tenant-1", "AZURE_OPENAI_CLIENTID": "cid", "AZURE_OPENAI_CLIENTSECRET": "cs"}.items():
+        monkeypatch.setenv(k, v)
+    prov = json.loads((pi_runner.write_pi_provider(tmp_path, cfg) / "models.json").read_text())["providers"]["azure-evolve"]
+    assert prov["apiKey"] == "entra-token-123" and prov["authHeader"] is True
+
+
 def test_podman_command_exposes_only_what_it_should(demo_repo, tmp_path):
-    cfg = load_config(demo_repo); cfg.pi.sandbox, cfg.pi.model = "podman", "azure/gpt-5.5"
+    cfg = load_config(demo_repo); cfg.pi.sandbox, cfg.pi.model = "podman", "gpt-5.5"
     ecp = ECP(id="ECP-0001", base_commit="x", **scenario("2_scope_violation_blocked")["elephant"][0])
     cmd = podman_command(demo_repo, tmp_path, ecp, cfg, "PROMPT")
     joined = " ".join(cmd)
@@ -81,16 +145,15 @@ def test_podman_command_exposes_only_what_it_should(demo_repo, tmp_path):
     mounts = [cmd[i + 1] for i, c in enumerate(cmd) if c == "-v"]
     assert len(mounts) == 3 and mounts[1].endswith("/guard:ro,Z")      # repo, guard (read-only), run folder. Nothing else.
     assert "--tools" in cmd and cmd[cmd.index("--tools") + 1] == "read,grep,find,ls,edit,write"   # no bash
-    assert "--model" in cmd and "azure/gpt-5.5" in cmd and cmd[-1] == "PROMPT"
+    assert "--model" in cmd and "azure-evolve/gpt-5.5" in cmd and cmd[-1] == "PROMPT" and "PI_CODING_AGENT_DIR=/ecp-run/pi-agent" in cmd
     assert "secret" not in joined
 
 
-def test_api_key_is_passed_by_name_not_value(demo_repo, tmp_path, monkeypatch):
+def test_no_secret_is_written_into_the_podman_command(demo_repo, tmp_path, monkeypatch):
     monkeypatch.setenv("AZURE_OPENAI_API_KEY", "super-secret-value")
-    cfg = load_config(demo_repo)
+    cfg = load_config(demo_repo); cfg.pi.model = "gpt-5.5"
     ecp = ECP(id="ECP-0001", base_commit="x", **scenario("2_scope_violation_blocked")["elephant"][0])
-    cmd = podman_command(demo_repo, tmp_path, ecp, cfg, "P")
-    assert "AZURE_OPENAI_API_KEY" in cmd and "super-secret-value" not in " ".join(cmd)
+    assert "super-secret-value" not in " ".join(podman_command(demo_repo, tmp_path, ecp, cfg, "P"))
 
 
 FAKE_PI = f'''#!{sys.executable}
@@ -107,7 +170,7 @@ act("write", "inventory/api.py", False, "forbidden")
 '''
 
 
-def test_real_pi_launch_plumbing_with_fake_pi(demo_repo, tmp_path, monkeypatch):
+def test_real_pi_launch_plumbing_with_fake_pi(demo_repo, tmp_path, monkeypatch, azure_server):
     fake = tmp_path / "bin"; fake.mkdir()
     (fake / "pi").write_text(FAKE_PI); (fake / "pi").chmod(0o755)
     monkeypatch.setenv("PATH", f"{fake}{os.pathsep}{os.environ['PATH']}")
@@ -118,6 +181,7 @@ def test_real_pi_launch_plumbing_with_fake_pi(demo_repo, tmp_path, monkeypatch):
     assert [a["path"] for a in res.applied] == ["inventory/store.py"]
     assert [b["path"] for b in res.blocked] == ["inventory/api.py"]
     assert "insufficient stock" in (demo_repo / "inventory" / "store.py").read_text()
+    assert not (demo_repo / ".evolution" / "run" / "pi-agent" / "models.json").exists()   # the key file is gone
 
 
 def test_missing_podman_gives_clear_error(demo_repo, monkeypatch):
@@ -125,21 +189,6 @@ def test_missing_podman_gives_clear_error(demo_repo, monkeypatch):
     cfg = load_config(demo_repo); cfg.pi.backend, cfg.pi.sandbox = "pi", "podman"
     ecp = ECP(id="ECP-0001", base_commit="x", **scenario("2_scope_violation_blocked")["elephant"][0])
     assert "podman is not installed" in run_pi(demo_repo, ecp, cfg).error
-
-
-def test_report_is_written_and_shows_the_story(demo_repo):
-    sc = scenario("2_scope_violation_blocked")
-    engine.run(demo_repo, sc["request"], MockLLM(sc), load_config(demo_repo), sc["pi_actions"], lambda q: True)
-    page = (demo_repo / ".evolution" / "reports" / "ECP-0001.html").read_text()
-    assert "ACCEPTED" in page and "BLOCKED" in page and "inventory/api.py" in page and "intact" in page
-
-
-def test_azure_endpoint_is_translated_for_pi(demo_repo, tmp_path, monkeypatch):
-    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://r.openai.azure.com")
-    monkeypatch.delenv("AZURE_OPENAI_BASE_URL", raising=False)
-    cfg = load_config(demo_repo)
-    ecp = ECP(id="ECP-0001", base_commit="x", **scenario("2_scope_violation_blocked")["elephant"][0])
-    assert "AZURE_OPENAI_BASE_URL=https://r.openai.azure.com" in podman_command(demo_repo, tmp_path, ecp, cfg, "P")
 
 
 # ---------------------------------------------------------------- doctor
@@ -151,12 +200,13 @@ def test_doctor_reports_unset_repo(tmp_path):
 
 def test_doctor_flags_missing_azure_env_and_failing_baseline(demo_repo, monkeypatch):
     from evolve.cli import doctor_checks
-    for k in ("AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_BASE_URL", "AZURE_OPENAI_RESOURCE_NAME"):
+    for k in ("AZURE_OPENAI_API_KEY", "AZURE_OPENAI_BASE", "AZURE_OPENAI_DEPLOYMENT", "AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_TENANTID"):
         monkeypatch.delenv(k, raising=False)
+    cfg = _azure_repo(demo_repo)
     p = demo_repo / ".evolution" / "config.yaml"
-    c = yaml.safe_load(p.read_text()); c["models"]["provider"] = "azure"; c["test_command"] = "false"; p.write_text(yaml.safe_dump(c))
-    bad = {name for ok, name, _ in doctor_checks(demo_repo) if not ok}
-    assert "AZURE_OPENAI_API_KEY is set" in bad and "tests pass BEFORE any change (baseline)" in bad
+    c = yaml.safe_load(p.read_text()); c["test_command"] = "false"; p.write_text(yaml.safe_dump(c))
+    bad = " | ".join(name for ok, name, _ in doctor_checks(demo_repo) if not ok)
+    assert "AZURE_OPENAI_BASE is set" in bad and "AZURE_OPENAI_DEPLOYMENT is set" in bad and "Azure credentials" in bad and "tests pass BEFORE any change (baseline)" in bad
 
 
 def test_doctor_all_green_on_demo_repo(demo_repo):
@@ -171,17 +221,6 @@ def test_doctor_catches_dirty_tree(demo_repo):
 
 
 # ---------------------------------------------------------------- azure details
-def test_azure_accepts_pis_env_names_and_tidies_the_url(monkeypatch):
-    from evolve.llm import AzureOpenAILLM
-    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "k")
-    monkeypatch.delenv("AZURE_OPENAI_ENDPOINT", raising=False)
-    monkeypatch.setenv("AZURE_OPENAI_BASE_URL", "https://res.openai.azure.com/openai/v1/")
-    assert AzureOpenAILLM("gpt-5.5", "AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_API_KEY").endpoint == "https://res.openai.azure.com"
-    monkeypatch.delenv("AZURE_OPENAI_BASE_URL")
-    monkeypatch.setenv("AZURE_OPENAI_RESOURCE_NAME", "myres")
-    assert AzureOpenAILLM("gpt-5.5", "AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_API_KEY").endpoint == "https://myres.openai.azure.com"
-
-
 def test_rate_limit_is_retried_then_succeeds(monkeypatch):
     from evolve import llm
     hits = []
@@ -214,6 +253,17 @@ def test_hard_error_message_is_readable(monkeypatch):
 
     srv = HTTPServer(("127.0.0.1", 0), H)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
-    with pytest.raises(RuntimeError, match="HTTP 404.*DeploymentNotFound"):
+    with pytest.raises(RuntimeError, match="HTTP 404.*DeploymentNotFound.*AZURE_OPENAI_DEPLOYMENT"):
         llm._post(f"http://127.0.0.1:{srv.server_port}/x", {}, {})
     srv.shutdown()
+
+
+def test_env_file_is_read_without_overriding(tmp_path, monkeypatch):
+    from evolve.cli import load_env_files
+    (tmp_path / ".env").write_text("# c\nexport FOO_KEY_X='abc'\nBAR_KEY_X=def\n", encoding="utf-8")
+    monkeypatch.delenv("FOO_KEY_X", raising=False)
+    monkeypatch.setenv("BAR_KEY_X", "kept")
+    assert str(tmp_path / ".env") in load_env_files(str(tmp_path))
+    import os
+    assert os.environ["FOO_KEY_X"] == "abc" and os.environ["BAR_KEY_X"] == "kept"
+    monkeypatch.delenv("FOO_KEY_X")

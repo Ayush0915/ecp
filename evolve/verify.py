@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .config import Config, git
 from .ecp import ECP
+from .live import emit
 from .scope import check_changed_files
 
 
@@ -61,12 +62,17 @@ def verify(repo: Path, ecp: ECP, cfg: Config) -> VerifyResult:
     r.changed_files = changed_files(repo, ecp.base_commit)
     r.diff = git(repo, "diff", "--cached", ecp.base_commit) if r.changed_files else ""
     r.scope_problems = check_changed_files(r.changed_files, ecp.allowed_paths, ecp.forbidden_paths)
+    emit(repo, "verify_step", name="scope", state="fail" if r.scope_problems else "ok", note="; ".join(r.scope_problems) or f"{len(r.changed_files)} file(s) changed, all inside the plan")
+    emit(repo, "verify_step", name="tests", state="running", note=cfg.test_command or "no test command")
     if cfg.test_command:
         r.test_ok, r.test_output = run_cmd(repo, cfg.test_command)
     else:
         r.test_ok, r.test_output = False, "No test command configured; cannot verify. Set test_command in .evolution/config.yaml."
+    emit(repo, "verify_step", name="tests", state="ok" if r.test_ok else "fail", note=(r.test_output.strip().splitlines() or [""])[-1][:160])
     if ecp.change_type in cfg.require_fail_before and r.test_ok:
+        emit(repo, "verify_step", name="fail_before", state="running", note="putting the old code back to see whether the new tests fail on it")
         r.fail_before = fail_before_check(repo, ecp, cfg, r.changed_files)
+        emit(repo, "verify_step", name="fail_before", state="ok" if r.fail_before["status"] == "proved" else "fail", note=r.fail_before.get("note", ""))
     for chk in ecp.verification:
         if chk.command:
             ok, out = run_cmd(repo, chk.command)

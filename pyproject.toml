@@ -3,10 +3,10 @@ name = "ecp-governed-evolution"
 version = "0.1.0"
 description = "Spec-governed controlled evolution: Elephant plans, Goldfish reviews, Pi builds, all under one ECP"
 requires-python = ">=3.10"
-dependencies = ["pydantic>=2", "pyyaml"]
+dependencies = ["pydantic>=2", "pyyaml", "bandit", "ruff", "coverage", "pytest"]  # the last four are the scanners used by `evolve discover`
 
 [project.optional-dependencies]
-dev = ["pytest", "fastapi", "httpx"]
+dev = ["fastapi", "httpx"]  # only for the sample project the tests use
 
 [project.scripts]
 evolve = "evolve.cli:main"
@@ -20,3 +20,4 @@ packages = ["evolve", "evolve.goldfish", "evolve.dashboard"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+norecursedirs = ["tests/fixtures", "workspaces", ".git", "docs"]

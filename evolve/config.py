@@ -22,26 +22,30 @@ Edit freely. Examples:
 
 
 class Models(BaseModel):
-    provider: str = "mock"  # mock | azure | anthropic | openai  (openai = any OpenAI-compatible API, e.g. Groq)
-    azure_endpoint_env: str = "AZURE_OPENAI_ENDPOINT"
-    elephant: str = "claude-sonnet-4-5"
-    goldfish: str = "claude-sonnet-4-5"
-    correctness: str = "claude-opus-4-1"  # deliberately a different model from the builder
-    base_url: str = ""  # for provider=openai
-    api_key_env: str = ""  # name of the env var holding the key
+    """Azure OpenAI. The connection itself (base URL, key, deployment) comes from the .env file, never from this file.
+    A role may name its own Azure deployment here; empty means AZURE_OPENAI_DEPLOYMENT."""
+    provider: str = "azure"  # azure | mock (tests only)
+    elephant: str = ""
+    goldfish: str = ""
+    correctness: str = ""  # a different deployment here gives the correctness reviewer a different brain from the builder
+
+    def resolve(self, key: str) -> str:
+        import os
+        return getattr(self, key, "") or self.goldfish or os.environ.get("AZURE_OPENAI_DEPLOYMENT", "") or "deployment"
 
 
 class PiSettings(BaseModel):
-    backend: str = "scripted"  # scripted (offline demo) | pi (real Pi agent)
+    backend: str = "pi"  # pi (the real Pi agent) | scripted (tests only)
     sandbox: str = "none"  # none | podman  (podman = Pi runs inside a container that can only see the repo)
     image: str = "evolve-pi:latest"  # container image built by `evolve sandbox build`
-    model: str = ""  # passed to `pi --model`
+    model: str = ""  # normally empty: Pi is pointed at the Azure deployment automatically
     allow_bash: bool = False  # off by default: tests are run by the control plane, not by Pi
     timeout_s: int = 900
 
 
 class Config(BaseModel):
     test_command: str = ""
+    python: str = ""  # interpreter of the repo's own environment (made by `evolve prepare`); empty = the one running evolve
     protected_paths: list[str] = Field(default_factory=list)  # touching these makes a change HIGH risk
     models: Models = Field(default_factory=Models)
     pi: PiSettings = Field(default_factory=PiSettings)
@@ -75,16 +79,7 @@ def detect_test_command(repo: Path) -> str:
     return ""
 
 
-PROFILES = {
-    # Azure OpenAI GPT-5.5 for planning/review, Pi built inside Podman
-    "azure-podman": {
-        "models": {"provider": "azure", "elephant": "gpt-5.5", "goldfish": "gpt-5.5", "correctness": "gpt-5.5", "api_key_env": "AZURE_OPENAI_API_KEY"},
-        "pi": {"backend": "pi", "sandbox": "podman", "model": "azure/gpt-5.5"},
-    },
-}
-
-
-def init_repo(repo: Path, profile: str = "") -> dict:
+def init_repo(repo: Path) -> dict:
     """Create .evolution/ with sensible defaults. Safe to re-run (never overwrites)."""
     repo = Path(repo)
     if not (repo / ".git").exists():
@@ -96,8 +91,6 @@ def init_repo(repo: Path, profile: str = "") -> dict:
     cfg = config_path(repo)
     if not cfg.exists():
         c = Config(test_command=detect_test_command(repo))
-        if profile:
-            c = Config(**{**c.model_dump(), **{k: {**c.model_dump()[k], **v} for k, v in PROFILES[profile].items()}})
         cfg.write_text(yaml.safe_dump(c.model_dump(), sort_keys=False), encoding="utf-8")
         created.append(str(cfg.relative_to(repo)))
     gi = evo / ".gitignore"

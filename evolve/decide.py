@@ -8,7 +8,7 @@ from pathlib import Path
 from .config import git
 from .ecp import ECP
 
-RECORD_PATHS = [".evolution/ecps", ".evolution/evidence", ".evolution/history.jsonl", ".evolution/config.yaml", ".evolution/rules.md", ".evolution/.gitignore"]
+RECORD_PATHS = [".evolution/ecps", ".evolution/evidence", ".evolution/history.jsonl", ".evolution/findings", ".evolution/baseline.json", ".evolution/discovery.jsonl", ".evolution/config.yaml", ".evolution/rules.md", ".evolution/.gitignore"]
 
 
 def record_paths_present(repo: Path) -> list[str]:

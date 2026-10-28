@@ -1,0 +1,172 @@
+{
+ "request": "(chosen from discovery)",
+ "scout": {
+  "findings": [
+   {
+    "title": "A discount above 100% makes the price negative",
+    "metric": "correctness",
+    "change_type": "bug",
+    "signal_ids": [],
+    "file": "shop/pricing.py",
+    "quote": "return price - price * percent / 100",
+    "explanation": "apply_discount accepts any percent, so apply_discount(100, 150) returns -50. A negative price could be charged or refunded by mistake.",
+    "impact": "high",
+    "impact_reason": "Wrong money amounts for any caller that passes a bad percent; the function is public.",
+    "fix_size": "small"
+   },
+   {
+    "title": "Admin password is written in the source code",
+    "metric": "security",
+    "change_type": "bug",
+    "signal_ids": [],
+    "file": "shop/auth.py",
+    "quote": "ADMIN_PASSWORD = \"hunter2-admin-pass\"",
+    "explanation": "Anyone who can read the repository knows the admin password.",
+    "impact": "high",
+    "impact_reason": "Credential exposure in version control.",
+    "fix_size": "small"
+   },
+   {
+    "title": "Passwords are hashed with MD5",
+    "metric": "security",
+    "change_type": "bug",
+    "signal_ids": [],
+    "file": "shop/auth.py",
+    "quote": "return hashlib.md5(pw.encode()).hexdigest()",
+    "explanation": "MD5 is fast and broken for passwords; stolen hashes can be cracked quickly.",
+    "impact": "high",
+    "impact_reason": "Weak password storage.",
+    "fix_size": "medium"
+   },
+   {
+    "title": "bulk_price has no tests",
+    "metric": "testing",
+    "change_type": "enhancement",
+    "signal_ids": [],
+    "file": "shop/pricing.py",
+    "quote": "return [apply_discount(p, percent) for p in prices]",
+    "explanation": "No test runs bulk_price, so a change to it or to apply_discount would go unnoticed.",
+    "impact": "medium",
+    "impact_reason": "Public helper that builds on the discount logic.",
+    "fix_size": "small"
+   },
+   {
+    "title": "Unused import in pricing module",
+    "metric": "quality",
+    "change_type": "refactor",
+    "signal_ids": [],
+    "file": "shop/pricing.py",
+    "quote": "import os",
+    "explanation": "os is imported but never used.",
+    "impact": "low",
+    "impact_reason": "Cosmetic.",
+    "fix_size": "small"
+   },
+   {
+    "title": "find_duplicates compares every pair of items",
+    "metric": "performance",
+    "change_type": "enhancement",
+    "signal_ids": [],
+    "file": "shop/report.py",
+    "quote": "for j in range(i + 1, len(items)):",
+    "explanation": "The nested loop grows with the square of the list size; a set would do it in one pass.",
+    "impact": "medium",
+    "impact_reason": "Slows down on large order lists.",
+    "fix_size": "small"
+   },
+   {
+    "title": "SQL injection in the user lookup",
+    "metric": "security",
+    "change_type": "bug",
+    "signal_ids": [],
+    "file": "shop/db.py",
+    "quote": "cursor.execute(\"SELECT * FROM users WHERE name = '\" + name + \"'\")",
+    "explanation": "User input is pasted into SQL.",
+    "impact": "high",
+    "impact_reason": "Classic injection.",
+    "fix_size": "medium"
+   },
+   {
+    "title": "apply_discount is not thread-safe",
+    "metric": "quality",
+    "change_type": "bug",
+    "signal_ids": [],
+    "file": "shop/pricing.py",
+    "quote": "return price - price * percent / 100",
+    "explanation": "Concurrent callers could corrupt each other's results (thread-safe).",
+    "impact": "medium",
+    "impact_reason": "Possible race.",
+    "fix_size": "medium"
+   }
+  ]
+ },
+ "claim_checks": {
+  "thread-safe": {
+   "true": false,
+   "reason": "the function only does arithmetic on its arguments and shares no state"
+  }
+ },
+ "elephant": [
+  {
+   "title": "Reject discounts outside 0-100%",
+   "change_type": "bug",
+   "intent": "apply_discount must never return a negative price: percentages outside 0-100 are rejected.",
+   "allowed_paths": [
+    "shop/pricing.py",
+    "tests/test_pricing.py"
+   ],
+   "forbidden_paths": [
+    ".github/**"
+   ],
+   "constraints": [
+    "Do not change public function names",
+    "A bug fix must come with a test that fails before the fix",
+    "Do not add dependencies"
+   ],
+   "success_criteria": [
+    "apply_discount raises ValueError for a percent below 0 or above 100",
+    "Valid discounts return the same values as before",
+    "All existing tests still pass"
+   ],
+   "verification": [
+    {
+     "description": "New tests for invalid percents pass and the old tests still pass",
+     "command": ""
+    }
+   ],
+   "abort_conditions": [
+    "Any existing test fails",
+    "A file outside the allowed paths needs to change"
+   ],
+   "rollback": "Discard branch evolve/<id>; no data migration is involved.",
+   "risk": "low",
+   "body": "## Root cause\n`apply_discount` does arithmetic on any percent, so values above 100 give negative prices.\n\n## Approach\n1. Raise `ValueError` when percent is outside 0-100.\n2. Add tests for 150%, -5% and the boundaries 0 and 100."
+  }
+ ],
+ "goldfish": [
+  {}
+ ],
+ "goldfish_post": [
+  {}
+ ],
+ "pi_actions": [
+  {
+   "tool": "edit",
+   "path": "shop/pricing.py",
+   "old": "    return price - price * percent / 100\n",
+   "new": "    if not 0 <= percent <= 100:\n        raise ValueError(\"percent must be between 0 and 100\")\n    return price - price * percent / 100\n"
+  },
+  {
+   "tool": "edit",
+   "path": "tests/test_pricing.py",
+   "old": "from shop.pricing import add_tax\n",
+   "new": "import pytest\n\nfrom shop.pricing import add_tax, apply_discount\n"
+  },
+  {
+   "tool": "edit",
+   "path": "tests/test_pricing.py",
+   "old": "    assert add_tax(100) == 118.0\n",
+   "new": "    assert add_tax(100) == 118.0\n\n\ndef test_discount_boundaries():\n    assert apply_discount(100, 0) == 100\n    assert apply_discount(100, 100) == 0\n    assert apply_discount(100, 25) == 75\n\n\n@pytest.mark.parametrize(\"bad\", [150, -5])\ndef test_discount_outside_range_is_rejected(bad):\n    with pytest.raises(ValueError):\n        apply_discount(100, bad)\n"
+  }
+ ]
+}

@@ -1,6 +1,6 @@
 # What is tested
 
-Run everything: `pytest -q` (about 80 tests, ~1 minute). Also: `node guard/test-core.mjs` and `node guard/test-hook.mjs`.
+Run everything: `pytest -q` (about 100 tests, ~1.5 minutes). Also: `node guard/test-core.mjs` and `node guard/test-hook.mjs`.
 
 | Area | How it is tested |
 |---|---|
@@ -18,13 +18,13 @@ Run everything: `pytest -q` (about 80 tests, ~1 minute). Also: `node guard/test-
 | Fail-before / pass-after | bug fix with no test is rolled back; a test that passes on the old code is rejected as proof; real fix with real test is "proved"; tree is restored after the check; enhancements skip it |
 | Plan versions | every revision is saved; v1 vs v2 differ as expected |
 | Reviewer says "insufficient context" | counts as a blocking finding and sends the plan back |
-| Compare plain vs governed | the unguarded agent's damage is measured, then fully undone; governed run still passes |
 | Triggers | failing tests become a request; dashboard approval handshake works |
-| Dashboard (real HTTP) | page served; run started from the page; one run at a time; approve and decline high-risk; compare; evidence chain and versions served; file reader cannot leave `.evolution/` |
+| Dashboard (real HTTP) | page served; run started from the page; one run at a time; approve and decline high-risk; Azure settings saved to `.env` with secrets never returned; connecting a repository; evidence chain and versions served; file reader cannot leave `.evolution/` |
 | Guard path handling | Pi may pass absolute paths: inside the repo = understood, outside / `..` / `~` = blocked |
 | Doctor | flags missing Azure variables, failing baseline tests, dirty tree, unset repo |
 | Azure details | Pi's variable names accepted, URL tidied, rate limits retried, hard errors readable |
-| Live paths (stand-ins) | Azure client runs the whole story against a fake Azure server (checks URL, key header, deployment name); exact Podman command (3 mounts only, no capabilities, no bash, key passed by name); real-Pi launch plumbing with a fake `pi` program; missing-podman message; HTML report content |
+| Live paths (stand-ins) | Azure client against a fake Azure server (URL, api-version, key or bearer token, token endpoint, service principal); Pi provider file; exact Podman command (3 mounts only, no capabilities, no bash, no secrets in the command); missing-podman message |
+| URL ingestion and cloning | 11 link forms parsed; option injection and bad input refused; branch with slashes; a real clone from a local stand-in remote, then fetch instead of re-clone; missing remote and non-git folder give plain errors |
 
 ## Found and fixed while testing
 
@@ -32,14 +32,24 @@ Run everything: `pytest -q` (about 80 tests, ~1 minute). Also: `node guard/test-
 - File lists from git were losing their first character in the comparison feature (a trimming bug). Found by a test, fixed.
 - Committing records failed silently when a records folder was empty. Fixed.
 
-- A one-item JSON list from a reviewer was read as a single object, silently dropping the finding. Fixed in `llm.extract_json`, and the demo now catches the flawed plan.
+- A one-item JSON list from a reviewer was read as a single object, silently dropping the finding. Fixed in `llm.extract_json`.
 
 ## NOT tested yet (needs API keys / live services)
 
-- A real call to Azure OpenAI / GPT-5.5, Anthropic or OpenAI-compatible services (only fake servers were used). `evolve doctor --ping` tests this on the target machine.
+- A real call to Azure OpenAI (only a fake server was used). `evolve doctor --ping` tests this on the target machine.
 - Podman itself (not installed here): only the command line is tested. `evolve sandbox build` and one real run are the proof on the target machine.
 - The real Pi agent doing a full run with a model (Pi starts and loads the guard; no API key was available for a model run).
 - Quality of real Goldfish reviews: the lens prompts are drafts and need tuning against real models.
 - The dashboard was tested in a headless browser and over HTTP here, not yet on your Ubuntu/WSL machine (open it from the Windows browser via localhost).
 - Proof tests for blockers (not built).
 - The fail-before check proves new tests fail on old code; it cannot tell *why* they fail (a broken import would also count). Reviewers and humans cover that gap.
+
+## Live-path tests
+- `tests/test_live_e2e.py` runs the real Azure client over HTTP and the real Pi agent with the real guard. Only the model's answers come from `tests/fake_azure.py`. It proves discovery finds a problem, the flow evolves it, the guard blocks an out-of-scope write made by real Pi, and the finding is marked accepted. Needs Pi installed (`PI_BIN=/path/to/pi`).
+- `tests/test_discover.py`, `tests/test_prepare.py`, `tests/test_dashboard.py`, `tests/test_repo.py` cover discovery, environment preparation, the dashboard API and URL ingestion.
+- Checked by hand: cloning and preparing a real public repository (dbader/schedule).
+
+## Still NOT tested (needs a real Azure resource)
+- A real Azure deployment answering as Elephant, Goldfish and Pi, including key and Entra token authentication and Pi's `/openai/v1` route.
+- Quality of real plans, findings and edits.
+- Pi's behaviour with every model.

@@ -5,7 +5,7 @@ which AI is behind it.
 
 `role` is a label such as "elephant:draft" or "goldfish:intent_fit". Real models
 ignore it; the Mock model uses it to play back a prepared scenario (so the whole
-system can be demonstrated and tested with no API key and no cost).
+system can be tested with no API key and no cost; real use is Azure OpenAI only).
 """
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ import urllib.error
 import urllib.request
 from typing import Protocol
 
+from . import azure
 from .config import Config
 
 
@@ -46,6 +47,19 @@ def _sleep(seconds: float) -> None:  # separate function so tests can skip the w
     time.sleep(seconds)
 
 
+def _friendly(code: int, body: str) -> str:
+    """Turn an AI-service error into a sentence a person can act on."""
+    msg = body
+    try:
+        j = json.loads(body)
+        msg = (j.get("error") or {}).get("message", body) if isinstance(j.get("error"), dict) else str(j.get("error", body))
+    except (ValueError, AttributeError):
+        pass
+    hint = {401: "Azure rejected the credentials: check AZURE_OPENAI_API_KEY (or the service principal)", 403: "these credentials are not allowed to use this deployment",
+            404: "the deployment was not found: check AZURE_OPENAI_DEPLOYMENT and AZURE_OPENAI_BASE", 429: "rate limited: the request will be retried, or lower the load"}.get(code, "")
+    return f"AI service returned HTTP {code}: {str(msg)[:300]}" + (f"  ({hint})" if hint else "")
+
+
 def _post(url: str, headers: dict, payload: dict, timeout: int = 180, retries: int = 4) -> dict:
     """POST JSON. Retries on rate limits / temporary server errors, with growing waits."""
     data = json.dumps(payload).encode()
@@ -59,7 +73,7 @@ def _post(url: str, headers: dict, payload: dict, timeout: int = 180, retries: i
             if e.code in (429, 500, 502, 503, 504) and attempt < retries:
                 _sleep(min(2 ** attempt * 2, 30))
                 continue
-            raise RuntimeError(f"AI service returned HTTP {e.code}: {body}") from None
+            raise RuntimeError(_friendly(e.code, body)) from None
         except (urllib.error.URLError, TimeoutError) as e:
             if attempt < retries:
                 _sleep(min(2 ** attempt * 2, 30))
@@ -68,72 +82,30 @@ def _post(url: str, headers: dict, payload: dict, timeout: int = 180, retries: i
     raise RuntimeError("unreachable")
 
 
-class AnthropicLLM:
-    def __init__(self, default_model: str, api_key_env: str = "ANTHROPIC_API_KEY"):
-        self.key = os.environ.get(api_key_env or "ANTHROPIC_API_KEY", "")
-        if not self.key:
-            raise RuntimeError(f"Set the {api_key_env or 'ANTHROPIC_API_KEY'} environment variable to use provider=anthropic.")
-        self.default_model = default_model
-
-    def complete(self, role, system, user, model=None):
-        out = _post(
-            "https://api.anthropic.com/v1/messages",
-            {"x-api-key": self.key, "anthropic-version": "2023-06-01"},
-            {"model": model or self.default_model, "max_tokens": 4096, "system": system, "messages": [{"role": "user", "content": user}]},
-        )
-        return "".join(b.get("text", "") for b in out["content"])
-
-
-class OpenAICompatLLM:
-    """Any OpenAI-style chat API (Groq, OpenRouter, local servers...)."""
-
-    def __init__(self, default_model: str, base_url: str, api_key_env: str):
-        self.key = os.environ.get(api_key_env, "")
-        if not self.key:
-            raise RuntimeError(f"Set the {api_key_env} environment variable to use provider=openai.")
-        self.base, self.default_model = base_url.rstrip("/"), default_model
-
-    def complete(self, role, system, user, model=None):
-        out = _post(
-            f"{self.base}/chat/completions",
-            {"authorization": f"Bearer {self.key}"},
-            {"model": model or self.default_model, "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]},
-        )
-        return out["choices"][0]["message"]["content"]
-
-
 class AzureOpenAILLM:
-    """Azure OpenAI (e.g. a GPT-5.5 deployment). The 'model' is your DEPLOYMENT name.
+    """Azure OpenAI chat. Every role uses AZURE_OPENAI_DEPLOYMENT unless a role has its own deployment name in config."""
 
-    Needs two environment variables (names are configurable in config.yaml):
-      AZURE_OPENAI_API_KEY   and   AZURE_OPENAI_ENDPOINT  (https://<resource>.openai.azure.com)
-    """
-
-    def __init__(self, default_model: str, endpoint_env: str, key_env: str):
-        self.key = os.environ.get(key_env, "")
-        ep = os.environ.get(endpoint_env, "") or os.environ.get("AZURE_OPENAI_BASE_URL", "")  # BASE_URL is Pi's name for it
-        if not ep and os.environ.get("AZURE_OPENAI_RESOURCE_NAME"):
-            ep = f"https://{os.environ['AZURE_OPENAI_RESOURCE_NAME']}.openai.azure.com"
-        self.endpoint = ep.rstrip("/")
-        for suffix in ("/openai/v1", "/openai"):
-            if self.endpoint.endswith(suffix):
-                self.endpoint = self.endpoint[: -len(suffix)]
-        if not self.key or not self.endpoint:
-            raise RuntimeError(f"Set {key_env} and {endpoint_env} to use provider=azure.")
-        self.default_model = default_model
+    def __init__(self):
+        self.s = azure.settings()
+        miss = self.s.missing()
+        if miss:
+            raise RuntimeError("Azure is not set up. Missing: " + ", ".join(miss) + ". Put them in the .env file or in Settings.")
 
     def complete(self, role, system, user, model=None):
-        out = _post(
-            f"{self.endpoint}/openai/v1/chat/completions",
-            {"api-key": self.key},
-            {"model": model or self.default_model, "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]},
-            timeout=300,
-        )
-        return out["choices"][0]["message"]["content"]
+        out = _post(azure.chat_url(self.s, model or ""), azure.auth_headers(self.s),
+                    {"messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}, timeout=300)
+        if "choices" not in out:
+            raise RuntimeError(f"Azure answered without a result: {json.dumps(out)[:300]}")
+        ch = out["choices"][0]
+        content = (ch.get("message") or {}).get("content")
+        if not content:
+            why = ch.get("finish_reason", "")
+            raise RuntimeError("Azure returned an empty answer" + (" (blocked by the content filter)" if why == "content_filter" else f" (finish reason: {why})" if why else ""))
+        return content
 
 
 class MockLLM:
-    """Plays back a prepared scenario. See demo/scenarios/*.json.
+    """Plays back a prepared scenario. See tests/fixtures/scenarios/*.json.
 
     scenario["elephant"]  = list of ECP drafts; call 1 = first draft, call 2 = first revision, ...
     scenario["goldfish"]  = list of review rounds; each round maps lens name -> list of findings.
@@ -150,6 +122,14 @@ class MockLLM:
     def complete(self, role, system, user, model=None):
         self.calls.append({"role": role, "system": system, "user": user, "model": model})
         kind, _, name = role.partition(":")
+        if kind == "elephant" and name == "scout":
+            return json.dumps(self.scenario["scout"])
+        if kind == "goldfish" and name == "claim":
+            verdicts = self.scenario.get("claim_checks", {})
+            for key, v in verdicts.items():  # match on a word from the claim
+                if key in user:
+                    return json.dumps(v)
+            return json.dumps({"true": True, "reason": "supported by the file"})
         if kind == "elephant":
             drafts = self.scenario["elephant"]
             d = drafts[min(self._elephant_n, len(drafts) - 1)]
@@ -168,16 +148,10 @@ class MockLLM:
 
 
 def make_llm(cfg: Config, scenario: dict | None = None) -> LLM:
-    p = cfg.models.provider
-    if p == "mock":
+    if cfg.models.provider == "mock":
         if scenario is None:
-            raise RuntimeError("provider is 'mock' but no scenario was given (use --scenario).")
+            raise RuntimeError("provider is 'mock' but no scenario was given.")
         return MockLLM(scenario)
-    if p == "azure":
-        m = cfg.models
-        return AzureOpenAILLM(m.elephant, m.azure_endpoint_env, m.api_key_env or "AZURE_OPENAI_API_KEY")
-    if p == "anthropic":
-        return AnthropicLLM(cfg.models.elephant, cfg.models.api_key_env)
-    if p == "openai":
-        return OpenAICompatLLM(cfg.models.elephant, cfg.models.base_url, cfg.models.api_key_env)
-    raise ValueError(f"unknown provider {p}")
+    if cfg.models.provider == "azure":
+        return AzureOpenAILLM()
+    raise ValueError(f"unknown provider {cfg.models.provider}")

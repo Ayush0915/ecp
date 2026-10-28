@@ -19,6 +19,7 @@ def test_roster_by_change_type():
 
 def test_correctness_uses_different_model(demo_repo):
     cfg = load_config(demo_repo)
+    cfg.models.goldfish, cfg.models.correctness = "deployment-a", "deployment-b"
     llm = MockLLM(scenario("2_scope_violation_blocked"))
     review(llm, cfg, demo_repo, ecp_for("2_scope_violation_blocked"), "after")
     models = {c["role"]: c["model"] for c in llm.calls}

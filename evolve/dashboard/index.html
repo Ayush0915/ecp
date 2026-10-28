@@ -2,339 +2,620 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ECP-Governed Evolution</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Evolve</title>
 <style>
-:root{--bg:#0a1222;--card:#111d38;--card2:#0d1730;--ink:#e8eefb;--mut:#8ea2c6;--line:#26365a;--gf:#3cc8f5;--gfbg:#0a2b44;--ecp:#5b8cff;--ok:#4cd19a;--bad:#ff6b6b;--warn:#f5b93c;--add:#123a2c;--del:#451c24}
-@media (prefers-color-scheme: light){:root{--bg:#f4f7fc;--card:#fff;--card2:#eef2fa;--ink:#0f1a2e;--mut:#566582;--line:#d3dcee;--gf:#0b7fa6;--gfbg:#e6f6fb;--ecp:#2456c9;--ok:#17855a;--bad:#c93a3a;--warn:#a86f00;--add:#dcf3e8;--del:#fbe0e3}}
+:root{
+  --bg:#f6f7f9; --surface:#ffffff; --line:#e4e7ec; --line2:#eef0f4; --text:#101828; --mute:#667085; --dim:#98a2b3;
+  --accent:#3b5bdb; --accent-bg:#edf1ff; --good:#067647; --good-bg:#e7f6ee; --bad:#b42318; --bad-bg:#fdecea; --warn:#b54708; --warn-bg:#fff4e5;
+  --elephant:#6941c6; --elephant-bg:#f1ecfd; --fish:#c4320a; --fish-bg:#fff0e8; --pi:#0e7c66; --pi-bg:#e3f5f0;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; --sans:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --shadow:0 1px 2px rgba(16,24,40,.05);
+}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:14.5px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
-header{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;padding:12px 20px;border-bottom:1px solid var(--line);background:var(--card2)}
-h1{font-size:18px;margin:0;letter-spacing:.01em}
-.chip{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:1px 10px;font-size:12px;color:var(--mut)}
-.chip b{color:var(--ink);font-weight:600}
-.grow{flex:1}
-.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--mut);margin-right:6px}
-.dot.live{background:var(--ok);box-shadow:0 0 0 0 var(--ok);animation:pulse 1.6s infinite}
-@keyframes pulse{70%{box-shadow:0 0 0 8px transparent}100%{box-shadow:0 0 0 0 transparent}}
-.runbox{display:flex;flex-wrap:wrap;gap:8px;padding:12px 20px;border-bottom:1px solid var(--line)}
-.runbox textarea{flex:1 1 380px;min-height:44px;max-height:110px;background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:inherit;resize:vertical}
-select,button{font:inherit;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:8px 14px;cursor:pointer}
-button.primary{background:var(--ecp);border-color:var(--ecp);color:#fff;font-weight:600}
-button.gf{background:var(--gf);border-color:var(--gf);color:#04202e;font-weight:600}
-button:disabled{opacity:.5;cursor:default}
-#banner{display:none;margin:12px 20px 0;padding:12px 16px;border-radius:10px;border:1px solid var(--warn);background:rgba(245,185,60,.12)}
-#banner button{margin-left:8px}
-.layout{display:grid;grid-template-columns:260px 1fr;gap:16px;padding:16px 20px 60px}
-@media (max-width:860px){.layout{grid-template-columns:1fr}}
-aside .item{padding:9px 11px;border:1px solid var(--line);border-radius:10px;margin-bottom:8px;cursor:pointer;background:var(--card)}
-aside .item.sel{border-color:var(--ecp);box-shadow:0 0 0 1px var(--ecp)}
-aside .t{font-weight:600}
-.pill{display:inline-block;border-radius:999px;padding:0 9px;font-size:11.5px;font-weight:700;letter-spacing:.03em}
-.accepted{background:var(--ok);color:#04251a}.rolled_back,.rejected{background:var(--bad);color:#2a0606}.running{background:var(--warn);color:#2a1d00}
-h3{margin:0 0 6px;font-size:11.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--mut);font-weight:700}
-.hint{color:var(--mut);font-size:13px}
-.stepper{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:12px}
-.step{border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--card);position:relative}
-.step .n{font-weight:700}.step .w{font-size:12px;color:var(--mut)}
-.step.done{border-color:var(--ok)}.step.done .n::before{content:"✔ ";color:var(--ok)}
-.step.active{border-color:var(--ecp);box-shadow:0 0 0 1px var(--ecp)}.step.active .n::before{content:"● ";color:var(--ecp)}
-.step.fail{border-color:var(--bad)}.step.fail .n::before{content:"✖ ";color:var(--bad)}
-.step.gfstep .w{color:var(--gf)}
-.replay{display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
-.replay input[type=range]{flex:1;min-width:160px}
-.replay button{padding:5px 12px}
-.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:12px;flex-wrap:wrap}
-.tabs button{border:0;border-bottom:2px solid transparent;border-radius:0;background:none;color:var(--mut);padding:7px 12px}
-.tabs button.on{color:var(--ink);border-color:var(--ecp);font-weight:600}
-.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:12px}
-.card.gf{border-left:4px solid var(--gf)}
-.card.new{animation:fadein .5s}
-@keyframes fadein{from{opacity:0;transform:translateY(6px)}}
-code,pre{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12.5px}
-pre{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;overflow:auto;max-height:360px;margin:8px 0 0;white-space:pre-wrap;word-break:break-word}
-.tag{display:inline-block;background:var(--card2);border:1px solid var(--line);border-radius:6px;padding:0 7px;margin:2px 4px 2px 0;font-family:ui-monospace,Consolas,monospace;font-size:12px}
-.tag.no{border-color:var(--bad);color:var(--bad)}.tag.yes{border-color:var(--ok);color:var(--ok)}
-.rev{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:8px}
-.rv{border:1px solid var(--line);border-radius:9px;padding:8px 10px;background:var(--gfbg)}
-.rv .nm{font-weight:700;color:var(--gf)}.rv.bad{border-color:var(--bad)}.rv.warn{border-color:var(--warn)}.rv.ok{border-color:var(--ok)}
-.sev{font-weight:800;font-size:11.5px;letter-spacing:.04em}.sev.blocker{color:var(--bad)}.sev.major{color:var(--warn)}.sev.nit{color:var(--mut)}
-.ins{background:var(--warn);color:#2a1d00;border-radius:4px;padding:0 5px;font-size:11px;font-weight:700;margin-right:4px}
-.act{display:flex;gap:8px;padding:3px 0;border-top:1px solid var(--line)}.act:first-of-type{border-top:0}
-.blocked{color:var(--bad);font-weight:700}
-.diff .a{background:var(--add);display:block}.diff .d{background:var(--del);display:block}.diff .m{color:var(--mut);display:block}.diff .c{display:block}
-.banner-out{font-size:18px;font-weight:700;display:flex;gap:12px;align-items:center}
-table{border-collapse:collapse;width:100%}td,th{border-top:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}th{color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.06em;border-top:0}
-.good{color:var(--ok);font-weight:600}.badc{color:var(--bad);font-weight:600}
-.ev{font-family:ui-monospace,Consolas,monospace;font-size:12px;border-top:1px solid var(--line);padding:4px 0}.ev .k{color:var(--ecp);font-weight:700}
-details summary{cursor:pointer;color:var(--mut)}
-#log{max-height:200px}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.55 var(--sans);display:flex;flex-direction:column;overflow:hidden}
+button{font:inherit;color:inherit;cursor:pointer}
+code,pre,.mono{font-family:var(--mono)}
+a{color:var(--accent)}
+h1,h2,h3,h4,p{margin:0}
+.top{display:flex;align-items:center;gap:16px;padding:0 24px;height:56px;background:var(--surface);border-bottom:1px solid var(--line);flex:none}
+.brand{font-weight:700;font-size:16px;letter-spacing:-.01em}
+.crumb{color:var(--mute);display:flex;gap:10px;align-items:center;min-width:0;white-space:nowrap}
+.crumb b{color:var(--text);font-weight:600}
+.sp{flex:1}
+.status{display:flex;align-items:center;gap:8px;color:var(--mute);font-size:13px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--dim);flex:none}
+.dot.on{background:#12b76a;animation:ping 1.5s infinite}.dot.bad{background:#f04438}
+@keyframes ping{70%{box-shadow:0 0 0 7px rgba(18,183,106,0)}0%{box-shadow:0 0 0 0 rgba(18,183,106,.45)}}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:7px 14px;font-weight:600;font-size:13px;box-shadow:var(--shadow);transition:.15s}
+.btn:hover{border-color:#c5cbd6;background:#fafbfc}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.primary:hover{filter:brightness(1.08);background:var(--accent)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn.sm{padding:4px 10px;font-size:12px}
+.link{background:none;border:0;color:var(--accent);padding:0;font-weight:600;cursor:pointer}
+.app{flex:1;display:grid;grid-template-columns:minmax(0,1fr);min-height:0}
+.side{background:var(--surface);border-right:1px solid var(--line);overflow:auto;padding:20px;display:flex;flex-direction:column;gap:24px}
+.main{display:flex;flex-direction:column;min-width:0;min-height:0}
+.stage{flex:1;overflow:auto;padding:0 32px 40px;scroll-behavior:smooth}
+.wrap{max-width:920px;margin:0 auto}
+.label{font-size:12px;font-weight:600;color:var(--mute);margin-bottom:8px;letter-spacing:.02em}
+input,textarea,select{width:100%;background:var(--surface);border:1px solid #d0d5dd;color:var(--text);border-radius:8px;padding:9px 12px;font:inherit;box-shadow:var(--shadow)}
+input:focus,textarea:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+textarea{resize:vertical;min-height:64px}
+.row{display:flex;gap:8px}
+.hint{color:var(--mute);font-size:12.5px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 18px;box-shadow:var(--shadow)}
+/* connect */
+.hero{max-width:640px;margin:12vh auto 0;text-align:center}
+.hero h1{font-size:30px;letter-spacing:-.02em;margin-bottom:8px}
+.hero p{color:var(--mute);font-size:15px;margin-bottom:24px}
+.hero .row{text-align:left}
+.hero input{padding:12px 14px;font-size:15px}
+.hero .btn{padding:0 22px;font-size:14px}
+.err{color:var(--bad);background:var(--bad-bg);border-radius:8px;padding:10px 12px;margin-top:12px;text-align:left;font-size:13px}
+.examples{margin-top:14px;font-size:12.5px;color:var(--mute)}
+.examples code{background:#eceff3;padding:1px 6px;border-radius:5px;cursor:pointer}
+.steps{text-align:left;margin-top:26px}
+.stp{display:flex;gap:14px;padding:11px 0;border-bottom:1px solid var(--line2);align-items:flex-start}
+.stp:last-child{border:0}
+.mark{width:20px;height:20px;border-radius:50%;border:2px solid var(--line);flex:none;margin-top:1px;display:grid;place-items:center;font-size:11px;color:#fff}
+.stp.done .mark{background:#12b76a;border-color:#12b76a}.stp.fail .mark{background:#f04438;border-color:#f04438}
+.stp.going .mark{border-color:var(--accent);border-top-color:transparent;animation:sp .8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.stp .t{font-weight:600}.stp.pending .t{color:var(--dim);font-weight:500}
+.stp .n{color:var(--mute);font-size:12.5px;word-break:break-word}
+.bar{height:6px;background:var(--line2);border-radius:9px;margin-top:8px;overflow:hidden}.bar i{display:block;height:100%;background:var(--accent);border-radius:9px;transition:width .3s}
+/* repo header */
+.rhead{padding:26px 0 8px;display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap}
+.rhead h1{font-size:22px;letter-spacing:-.01em}
+.meta{color:var(--mute);font-size:13px;display:flex;gap:14px;flex-wrap:wrap;margin-top:4px}
+.chip{display:inline-block;font-size:12px;font-weight:600;padding:2px 9px;border-radius:99px;background:#eceff3;color:#475467}
+.chip.good{background:var(--good-bg);color:var(--good)}.chip.bad{background:var(--bad-bg);color:var(--bad)}.chip.warn{background:var(--warn-bg);color:var(--warn)}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:14px 0 0;position:sticky;top:0;background:var(--bg);z-index:6;padding-top:6px}
+.tabs button{background:none;border:0;border-bottom:2px solid transparent;color:var(--mute);padding:10px 14px;font-weight:600;margin-bottom:-1px}
+.tabs button.on{color:var(--text);border-color:var(--accent)}
+.pad{padding-top:22px}
+.actions{display:flex;gap:10px;align-items:center;margin:18px 0 6px}.actions input{flex:1;padding:11px 14px}.actions .btn{padding:10px 18px}
+.fgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.fgrid .finding{margin:0;display:flex;flex-direction:column}.fgrid .finding .btn{margin-top:auto;align-self:flex-start}
+.block{margin-top:26px}.block>.label{font-size:13px}
+.yaml{background:#fbfcfe;border:1px solid var(--line);border-left:3px solid var(--elephant);border-radius:12px;padding:16px 20px;font-family:var(--mono);font-size:12.5px;line-height:1.75;overflow:auto;box-shadow:var(--shadow)}
+.yaml .ln{white-space:pre-wrap;word-break:break-word}.yaml.anim .ln{opacity:0;animation:rise .25s forwards}
+.yaml .k{color:#6941c6}.yaml .s{color:#067647}.yaml .n{color:#b54708}.yaml .c{color:#98a2b3}.yaml .no{color:var(--bad)}
+.yhead{display:flex;gap:10px;align-items:center;margin-bottom:8px;color:var(--mute);font-size:12.5px}.yhead b{font-family:var(--mono);color:var(--text)}
+/* sidebar content */
+.finding{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:10px}
+.finding .t{font-weight:600;line-height:1.35;margin:6px 0 4px}
+.finding .f{color:var(--mute);font-size:12px;margin-bottom:10px}
+.ev{display:inline-flex;gap:3px;vertical-align:middle;margin-right:6px}.ev b{width:12px;height:4px;border-radius:2px;background:#dde1e8}.ev b.on{background:#12b76a}
+.mtag{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--mute)}
+.run{display:flex;gap:10px;align-items:center;padding:8px 10px;border-radius:8px;cursor:pointer;margin:0 -10px}
+.run:hover{background:var(--bg)}.run.sel{background:var(--accent-bg)}
+.run .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* stage sections */
+.sec{margin-bottom:28px;animation:rise .4s both}
+@keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.hd{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+.av{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;font-weight:700;font-size:15px;flex:none}
+.av.elephant{background:var(--elephant-bg);color:var(--elephant)}.av.fish{background:var(--fish-bg);color:var(--fish)}.av.pi{background:var(--pi-bg);color:var(--pi)}.av.code{background:#eceff3;color:#475467}
+.av.working{animation:glow 1.6s infinite}
+@keyframes glow{50%{box-shadow:0 0 0 6px rgba(59,91,219,.12)}}
+.hd h2{font-size:16px;letter-spacing:-.005em}.hd .sub{color:var(--mute);font-size:12.5px}
+.st{margin-left:auto;font-size:12.5px;font-weight:600;white-space:nowrap;display:flex;align-items:center;gap:7px;color:var(--mute)}
+.st.working{color:var(--accent)}.st.done{color:var(--good)}.st.fail,.st.error{color:var(--bad)}
+.spin{display:inline-block;width:12px;height:12px;border-radius:50%;border:2px solid #d0d5dd;border-top-color:var(--accent);animation:sp .8s linear infinite}
+.think{display:flex;align-items:center;gap:12px;padding:16px 18px;border:1px dashed #cfd4dc;border-radius:12px;color:var(--mute);background:var(--surface)}
+.dots span{display:inline-block;width:6px;height:6px;margin-right:4px;border-radius:50%;background:var(--elephant);animation:dot 1.2s infinite}
+.dots span:nth-child(2){animation-delay:.15s}.dots span:nth-child(3){animation-delay:.3s}
+@keyframes dot{0%,80%,100%{opacity:.25}40%{opacity:1}}
+/* the plan document */
+.ecp{background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--elephant);border-radius:12px;padding:24px 28px;box-shadow:var(--shadow)}
+.ecp .top2{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+.ecp .idc{font-family:var(--mono);font-weight:700;color:var(--elephant)}
+.ecp h3{font-size:22px;letter-spacing:-.015em;line-height:1.25;margin-bottom:6px}
+.ecp .blk{margin-top:18px}
+.ecp .blk>h4{font-size:11.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--mute);margin-bottom:6px}
+.ecp ul{margin:0;padding-left:18px}.ecp li{margin:2px 0}
+.ecp .pth{display:inline-block;font-family:var(--mono);font-size:12px;padding:2px 8px;border-radius:6px;margin:2px 6px 2px 0;background:var(--accent-bg);color:var(--accent)}
+.ecp .pth.no{background:var(--bad-bg);color:var(--bad)}
+.ecp .cmd{font-family:var(--mono);font-size:12px;color:var(--mute)}
+.ecp .approach{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:12px 14px;font-size:13px}
+.ecp.anim .blk,.ecp.anim h3,.ecp.anim .top2{opacity:0;animation:rise .5s forwards}
+.lock{margin-top:20px;padding:10px 14px;border-radius:8px;background:var(--good-bg);color:var(--good);font-size:13px;font-weight:500}
+.lock code{font-size:12px}
+.fold{background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--elephant);border-radius:12px;padding:10px 16px;box-shadow:var(--shadow)}
+.fold>summary{cursor:pointer;font-weight:600}.fold .ecp{margin-top:12px;border:0;border-top:1px solid var(--line2);border-radius:0;padding:16px 0 4px;box-shadow:none}
+/* goldfish */
+.round{margin-bottom:18px}.round>.rt{font-size:12.5px;color:var(--mute);margin-bottom:10px;font-weight:600}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:12px}
+.gf{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:8px;min-height:104px;position:relative;overflow:hidden;box-shadow:var(--shadow)}
+.gf.working{border-color:#b9c6f5}
+.gf.working::after{content:"";position:absolute;left:0;top:0;height:2px;width:40%;background:var(--accent);animation:scan 1.4s ease-in-out infinite}
+@keyframes scan{from{left:-40%}to{left:100%}}
+.gf.clean{border-color:#abefc6}.gf.blocker{border-color:#fda29b}
+.gf .tp{display:flex;align-items:center;gap:10px}
+.gf .nm{font-weight:600;text-transform:capitalize}.gf .md{font-size:11px;color:var(--dim);font-family:var(--mono)}
+.gf .rs{margin-left:auto;font-size:12.5px;font-weight:600;white-space:nowrap}
+.gf .why{font-size:12.5px;color:var(--mute)}
+.fnd{border-left:3px solid var(--line);padding:6px 10px;background:var(--bg);border-radius:0 8px 8px 0;font-size:12.5px;animation:rise .3s both}
+.fnd.blocker{border-color:#f04438}.fnd.major{border-color:#f79009}.fnd.nit{border-color:var(--dim)}
+.fnd b{text-transform:uppercase;font-size:10.5px;letter-spacing:.06em;margin-right:4px}
+.fnd.blocker b{color:var(--bad)}.fnd.major b{color:var(--warn)}
+/* pi, verify, decision */
+.term{background:#101828;color:#e4e7ec;border-radius:12px;padding:14px 16px;font-family:var(--mono);font-size:12.5px}
+.act{display:flex;gap:12px;padding:3px 0;animation:rise .25s both}
+.act .k{width:50px;color:#98a2b3}.act .p{flex:1;word-break:break-all}.act .ok{color:#75e0a7}.act .no{color:#fda29b}
+.act.blocked{background:rgba(240,68,56,.14);margin:2px -8px;padding:3px 8px;border-radius:6px}
+.ck{display:flex;gap:12px;align-items:flex-start;padding:12px 16px;background:var(--surface);border:1px solid var(--line);border-radius:10px;margin-bottom:8px}
+.ck .nt{color:var(--mute);font-size:12px;font-family:var(--mono);word-break:break-word}
+.diff{background:#101828;border-radius:10px;padding:10px 0;font-family:var(--mono);font-size:12px;max-height:360px;overflow:auto;margin-top:10px}
+.diff div{padding:0 14px;white-space:pre;color:#98a2b3}.diff .a{background:rgba(18,183,106,.16);color:#a6f4c5}.diff .d{background:rgba(240,68,56,.16);color:#fecdca}.diff .h{color:#8098f9}
+.verdict{border-radius:12px;padding:18px 22px;border:1px solid}
+.verdict h2{font-size:18px;margin-bottom:4px}.verdict ul{margin:6px 0 0;padding-left:18px;color:var(--mute)}
+.verdict.good{background:var(--good-bg);border-color:#abefc6}.verdict.bad{background:var(--bad-bg);border-color:#fda29b}.verdict.mid{background:var(--warn-bg);border-color:#fedf89}
+.gate{display:flex;gap:10px;align-items:center;padding:10px 14px;border-radius:10px;font-size:13px;border:1px solid var(--line);background:var(--surface)}
+.gate b{font-weight:600}
+/* progress line */
+.pipe{display:flex;margin:22px 0 24px;position:sticky;top:0;z-index:5;background:var(--bg);padding:8px 0}
+.ps{flex:1;text-align:center;color:var(--dim);font-size:12.5px;font-weight:600;position:relative;padding-top:20px}
+.ps::before{content:"";position:absolute;top:5px;left:-50%;width:100%;height:2px;background:var(--line)}.ps:first-child::before{display:none}
+.ps::after{content:"";position:absolute;top:0;left:calc(50% - 6px);width:12px;height:12px;border-radius:50%;background:var(--bg);border:2px solid var(--line)}
+.ps.done{color:var(--text)}.ps.done::before{background:#12b76a}.ps.done::after{background:#12b76a;border-color:#12b76a}
+.ps.active{color:var(--accent)}.ps.active::after{border-color:var(--accent);box-shadow:0 0 0 4px var(--accent-bg)}
+.ps.fail::after{background:#f04438;border-color:#f04438}
+.empty{text-align:center;padding:80px 0;color:var(--mute)}.empty h2{color:var(--text);font-size:20px;margin-bottom:6px}
+/* dock */
+.dock{height:210px;border-top:1px solid var(--line);background:var(--surface);display:flex;flex-direction:column;flex:none}
+.dock.min{height:40px}
+.dock .bar2{display:flex;gap:4px;align-items:center;padding:6px 20px;border-bottom:1px solid var(--line2);flex:none}
+.dock .tb{background:none;border:0;color:var(--mute);padding:3px 10px;border-radius:6px;font-weight:600;font-size:12.5px}.dock .tb.on{background:var(--bg);color:var(--text)}
+.log{flex:1;overflow:auto;padding:8px 20px;font-family:var(--mono);font-size:12px}
+.log .l{display:flex;gap:12px;padding:1px 0}.log .tm{color:var(--dim);flex:none}.log .who{flex:none;width:72px;font-weight:700}
+.who.elephant{color:var(--elephant)}.who.goldfish{color:var(--fish)}.who.pi{color:var(--pi)}.who.system,.who.gate{color:var(--mute)}.who.verify{color:var(--good)}
+.log .msg{white-space:pre-wrap;word-break:break-word}
+.banner{background:var(--warn-bg);border:1px solid #fedf89;border-radius:10px;padding:12px 16px;margin:20px 0 0;display:flex;gap:12px;align-items:center}.banner span{flex:1}
+.rbar{display:flex;gap:12px;align-items:center;padding:10px 0}.rbar input[type=range]{flex:1;padding:0;box-shadow:none}
+/* modal */
+.modal{position:fixed;inset:0;background:rgba(16,24,40,.45);display:none;place-items:center;z-index:50}.modal.on{display:grid}
+.mbox{width:min(600px,94vw);max-height:92vh;overflow:auto;background:var(--surface);border-radius:16px;padding:26px 28px;box-shadow:0 20px 50px rgba(16,24,40,.25)}
+.mbox h2{font-size:20px;margin-bottom:4px}.fld{margin:12px 0}.fld label{display:block;font-size:12.5px;font-weight:600;color:#344054;margin-bottom:5px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.okc{color:var(--good)}.badc{color:var(--bad)}
+details.p{border:1px solid var(--line);border-radius:10px;padding:8px 14px;margin-bottom:8px;background:var(--surface)}
+details.p summary{cursor:pointer;font-weight:600}details.p pre{margin:8px 0 0;white-space:pre-wrap;word-break:break-word;font-size:12px}
+@media (max-width:900px){.two,.fgrid{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
-<header>
-  <h1>ECP-Governed Evolution</h1>
-  <span class="chip">repo <b id="repo">-</b></span>
-  <span class="chip">AI <b id="prov">-</b></span>
-  <span class="chip">builder <b id="pi">-</b></span>
-  <span class="chip">sandbox <b id="sbx">-</b></span>
-  <span class="grow"></span>
-  <span class="hint"><span class="dot" id="livedot"></span><span id="livetxt">idle</span></span>
-</header>
 
-<div class="runbox">
-  <textarea id="req" placeholder="Describe a change: a bug to fix, a feature, an enhancement..."></textarea>
-  <select id="scen" style="display:none"></select>
-  <button class="primary" id="run">Run governed evolution</button>
-  <button class="gf" id="cmp" title="Run the same request with a plain agent (no ECP) and with governance, then compare">Compare: plain vs governed</button>
-  <button id="reset" style="display:none">Reset demo repo</button>
+<div class="top">
+  <span class="brand">Evolve</span>
+  <div class="crumb" id="crumb"></div>
+  <div class="sp"></div>
+  <div class="status"><span class="dot" id="livedot"></span><span id="livetxt">Idle</span></div>
+  <div class="status" id="azstat" style="cursor:pointer"><span class="dot" id="azdot"></span><span id="aztxt">Azure</span></div>
+  <button class="btn" id="settingsbtn">Settings</button>
 </div>
-<div id="banner"><b id="bq"></b> <button class="primary" id="yes">Approve</button><button id="no">Decline</button></div>
 
-<div class="layout">
-  <aside>
-    <h3>Evolutions</h3>
-    <div id="list"></div>
-    <h3 style="margin-top:16px">Memory (history)</h3>
-    <div id="hist" class="hint">none yet</div>
-  </aside>
-  <main>
-    <div id="stepper" class="stepper"></div>
-    <div class="replay">
-      <button id="live">● Live</button>
-      <button id="play">▶ Replay</button>
-      <input type="range" id="slider" min="0" max="0" value="0">
-      <span class="hint" id="pos"></span>
+<div class="app" id="app">
+  <main class="main">
+    <div class="stage" id="stage"></div>
+    <div class="dock" id="dock" style="display:none">
+      <div class="bar2"><button class="tb on" data-d="act">Activity</button><button class="tb" data-d="raw">Raw output</button><span class="sp"></span><button class="tb" id="dockmin">Hide</button></div>
+      <div class="log" id="log"></div>
     </div>
-    <div class="tabs" id="tabs"></div>
-    <div id="view"></div>
-    <details style="margin-top:14px"><summary>Run console</summary><pre id="log"></pre></details>
   </main>
 </div>
 
+<div class="modal" id="modal"><div class="mbox" id="mbox"></div></div>
+
 <script>
 const $ = id => document.getElementById(id);
-const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-const get = async u => (await fetch(u, {cache:"no-store"})).json();
-const post = async (u, b) => (await fetch(u, {method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify(b||{})})).json();
+const esc = s => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const get = u => fetch(u).then(r => r.json());
+const post = (u, b) => fetch(u, {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify(b || {})}).then(r => r.json());
+const S = {ov: null, live: null, ing: null, events: [], after: 0, tab: "live", sel: null, replay: null, rpos: 0, dock: "act", detail: null,
+           seenAnim: new Set(), paint: {}, follow: true, replayFast: false, azOk: null, azAt: 0, openEcp: false, switching: false};
 
-const ROSTER = {
-  before: ["comprehension","intent_fit","verification","scope_rules","readiness"],
-  beforeExtra: {bug:["root_cause"], feature:["impact"], enhancement:["impact"], refactor:["behavior_preserved"]},
-  after: ["conformance","correctness"],
-  afterExtra: {feature:["security"], enhancement:["security","performance"], bug:[], refactor:[]},
-};
-const LABEL = {comprehension:"Comprehension",intent_fit:"Intent fit",verification:"Verification",scope_rules:"Scope & rules",readiness:"Readiness",root_cause:"Root cause",impact:"Impact",behavior_preserved:"Behavior preserved",conformance:"Conformance",correctness:"Correctness",security:"Security",performance:"Performance",completeness:"Completeness"};
-
-let S = {ov:null, live:null, sel:null, detail:null, n:0, follow:true, tab:"story", timer:null, planTab:null, lastSig:""};
-
-function planAt(detail, entries) {
-  let v = 0;
-  for (const e of entries) if ((e.kind==="draft"||e.kind==="revised") && e.data.version) v = e.data.version;
-  return v ? detail.versions.find(x => x.n === v) : null;
-}
-function lcsDiff(a, b) {
-  const A=a.split("\n"), B=b.split("\n"), m=A.length, n=B.length;
-  const L=Array.from({length:m+1},()=>new Array(n+1).fill(0));
-  for(let i=m-1;i>=0;i--)for(let j=n-1;j>=0;j--)L[i][j]=A[i]===B[j]?L[i+1][j+1]+1:Math.max(L[i+1][j],L[i][j+1]);
-  const out=[];let i=0,j=0;
-  while(i<m&&j<n){if(A[i]===B[j]){out.push(["c",A[i]]);i++;j++}else if(L[i+1][j]>=L[i][j+1]){out.push(["d",A[i]]);i++}else{out.push(["a",B[j]]);j++}}
-  while(i<m)out.push(["d",A[i++]]);while(j<n)out.push(["a",B[j++]]);
-  return out;
-}
-const diffHtml = lines => `<pre class="diff">${lines.map(([t,x])=>`<span class="${t}">${t==="a"?"+ ":t==="d"?"- ":"  "}${esc(x)}</span>`).join("")}</pre>`;
-const gitDiffHtml = d => `<pre class="diff">${esc(d).split("\n").map(l=>{const c=l.startsWith("+")&&!l.startsWith("+++")?"a":l.startsWith("-")&&!l.startsWith("---")?"d":/^(diff|index|@@|---|\+\+\+)/.test(l)?"m":"c";return `<span class="${c}">${l}</span>`}).join("")}</pre>`;
-
-function steps(entries) {
-  const has = k => entries.some(e => e.kind === k);
-  const dec = entries.filter(e => e.kind === "decision").pop();
-  const out = dec ? dec.data.outcome : "";
-  const planOnly = out === "rejected";
-  const defs = [
-    {n:"1 Plan", w:"Elephant", done:has("draft")},
-    {n:"2 Review", w:"Goldfish", done:has("gate_plan"), gf:true},
-    {n:"3 Build", w:"Pi + guard", done:has("verify")},
-    {n:"4 Verify", w:"tests + Goldfish", done:has("review_after"), gf:true},
-    {n:"5 Decide", w:"gate", done:!!dec},
-  ];
-  let activeSet = false;
-  return defs.map((d,i) => {
-    let cls = d.done ? "done" : "";
-    if (!d.done && !dec && !activeSet) { cls = "active"; activeSet = true; }
-    if (out === "rolled_back") { if (i===4) cls = "fail"; if (i===3 && verifyBad(entries)) cls = "fail"; }
-    if (planOnly && i===1) cls = "fail";
-    if (planOnly && i>1) cls = "";
-    return `<div class="step ${cls} ${d.gf?"gfstep":""}"><div class="n">${d.n}</div><div class="w">${d.w}</div></div>`;
-  }).join("");
-}
-const verifyBad = entries => { const v = entries.filter(e=>e.kind==="verify").pop(); return v && !v.data.ok; };
-
-function reviewCards(findings, roster) {
-  const by = {};
-  findings.forEach(f => (by[f.reviewer] ||= []).push(f));
-  const names = [...roster, ...Object.keys(by).filter(k => !roster.includes(k))];
-  return `<div class="rev">` + names.map(nm => {
-    const fs = by[nm] || [];
-    const worst = fs.some(f=>f.severity==="blocker") ? "bad" : fs.some(f=>f.severity==="major") ? "warn" : fs.length ? "ok" : "ok";
-    const body = fs.length ? fs.map(f => `<div style="margin-top:4px"><span class="sev ${f.severity}">${f.severity.toUpperCase()}</span> ${f.claim.startsWith("INSUFFICIENT CONTEXT")?'<span class="ins">NEEDS CONTEXT</span>':""}${esc(f.claim)}${f.suggested_fix?`<div class="hint">Suggested: ${esc(f.suggested_fix)}</div>`:""}</div>`).join("") : `<div class="good">✔ no findings</div>`;
-    return `<div class="rv ${worst}"><div class="nm">${esc(LABEL[nm]||nm)}</div>${body}</div>`;
-  }).join("") + `</div>`;
-}
-
-function story(detail, entries, ct) {
-  const h = [];
-  const req = entries.find(e => e.kind === "request");
-  if (req) h.push(`<div class="card"><h3>Request</h3>${esc(req.data.text)}</div>`);
-  const plan = planAt(detail, entries);
-  if (plan) {
-    const f = plan.fields, locked = entries.some(e=>e.kind==="status" && e.data.to==="approved");
-    const lockHash = (entries.filter(e=>e.kind==="status" && e.data.to==="approved").pop()||{data:{}}).data.plan_hash;
-    h.push(`<div class="card"><h3>1 · Plan by Elephant — the ECP (version ${plan.n})${locked?` · <span class="good">LOCKED</span> <code>${esc(lockHash)}</code>`:""}</h3>
-      <div style="font-size:16px;font-weight:600">${esc(f.title)} <span class="chip">${esc(f.change_type)}</span> <span class="chip">risk ${esc(f.risk)}</span></div>
-      <p style="margin:6px 0"><b>Intent.</b> ${esc(f.intent)}</p>
-      <div><b>May edit:</b> ${(f.allowed_paths||[]).map(p=>`<span class="tag yes">${esc(p)}</span>`).join("")||"—"}</div>
-      <div><b>Must not touch:</b> ${(f.forbidden_paths||[]).map(p=>`<span class="tag no">${esc(p)}</span>`).join("")||"—"} <span class="tag no">.git/ .evolution/ (always)</span></div>
-      <div style="margin-top:6px"><b>Success criteria</b><ul style="margin:4px 0 0">${(f.success_criteria||[]).map(c=>`<li>${esc(c)}</li>`).join("")}</ul></div>
-      <div class="hint" style="margin-top:6px">${plan.n>1?"The plan changed since version 1 — see the Plan tab for the exact difference.":""}</div></div>`);
-  }
-  entries.forEach((e,i) => {
-    const d = e.data, fresh = i === entries.length-1 ? "new" : "";
-    if (e.kind === "review_before") {
-      const ct0 = ct, roster = [...ROSTER.before, ...(ROSTER.beforeExtra[ct0]||[])];
-      h.push(`<div class="card gf ${fresh}"><h3>2 · Review by Goldfish — round ${d.round} <span class="hint">(reviewers see only the ECP, the rules and the files it names)</span></h3>${reviewCards(d.findings, roster)}</div>`);
-    } else if (e.kind === "revised") {
-      h.push(`<div class="card ${fresh}"><h3>Elephant revised the plan → version ${d.version}</h3>New allowed paths: ${(d.allowed_paths||[]).map(p=>`<span class="tag">${esc(p)}</span>`).join("")}</div>`);
-    } else if (e.kind === "gate_plan") {
-      h.push(`<div class="card ${fresh}"><h3>Risk gate (plan)</h3>${d.go?'<span class="good">Go</span>':'<span class="badc">Stop</span>'} — ${esc(d.how)} · risk <b>${esc(d.risk)}</b></div>`);
+// ======================================================================= events -> what to draw
+function reduce(evs) {
+  const m = {job: "", signals: null, signalsSince: 0, claims: [], proposed: null, discovery: null, elephant: {state: "idle"}, ecp: null, version: 1, hist: [],
+             rounds: [], gates: [], locked: null, pi: null, verify: null, decision: null, phase: "", prep: {order: [], steps: {}, done: null}};
+  for (const e of evs) {
+    const d = e.data;
+    switch (e.kind) {
+      case "job_start": m.job = d.job; break;
+      case "prep_start": m.phase = "prep"; break;
+      case "prep_step": if (!m.prep.order.includes(d.name)) m.prep.order.push(d.name); m.prep.steps[d.name] = d; break;
+      case "prep_done": m.prep.done = d; break;
+      case "signals_start": m.signalsSince = e.t; m.phase = "signals"; break;
+      case "signals": m.signals = d; m.phase = "signals"; break;
+      case "elephant_start": m.elephant = {state: "working", task: d.task, model: d.model, since: e.t, problems: d.problems}; m.phase = d.task === "scout" ? "scout" : "plan"; break;
+      case "elephant_done":
+        m.elephant = {...m.elephant, state: "done", task: d.task};
+        if (d.task === "scout") m.proposed = d.proposed; else { m.ecp = d.ecp; m.version = d.version || 1; m.hist.push(e.seq); }
+        break;
+      case "review_start": m.rounds.push({phase: d.phase, round: d.round, lenses: d.lenses, cards: {}}); m.phase = d.phase === "before" ? "review" : "after"; break;
+      case "goldfish_start":
+        if (d.phase === "discover") { m.claims.push({subject: d.subject, state: "working"}); m.phase = "check"; break; }
+        { const r = m.rounds[m.rounds.length - 1]; if (r) r.cards[d.lens] = {state: "working", since: e.t, model: d.model}; }
+        break;
+      case "goldfish_done":
+        if (d.phase === "discover") { const c = [...m.claims].reverse().find(c => c.subject === d.subject && c.state === "working"); if (c) Object.assign(c, {state: d.verdict ? "true" : "false", reason: d.reason}); break; }
+        { const r = m.rounds[m.rounds.length - 1]; if (r) r.cards[d.lens] = {...(r.cards[d.lens] || {}), state: d.error ? "error" : "done", findings: d.findings, seconds: d.seconds, error: d.error}; }
+        break;
+      case "review_done": { const r = m.rounds.find(r => r.phase === d.phase && r.round === d.round); if (r) { r.done = true; r.blocking = d.blocking; } break; }
+      case "gate": m.gates.push(d); m.phase = "gate"; break;
+      case "locked": m.locked = d.hash; break;
+      case "pi_start": m.pi = {state: "working", since: e.t, actions: [], ...d}; m.phase = "build"; break;
+      case "pi_action": if (m.pi) m.pi.actions.push(d); break;
+      case "pi_done": if (m.pi) Object.assign(m.pi, {state: d.error ? "error" : "done", applied: d.applied, blocked: d.blocked, error: d.error}); break;
+      case "verify_start": m.verify = {state: "working", steps: {}, order: [], since: e.t}; m.phase = "verify"; break;
+      case "verify_step": if (m.verify) { if (!m.verify.order.includes(d.name)) m.verify.order.push(d.name); m.verify.steps[d.name] = d; } break;
+      case "verify_done": if (m.verify) Object.assign(m.verify, {state: d.ok ? "done" : "fail", ...d}); break;
+      case "decision": m.decision = d; m.phase = "decision"; break;
+      case "discovery_done": m.discovery = d; m.phase = "discovered"; break;
     }
-  });
-  const acts = entries.filter(e => e.kind === "pi_action");
-  if (acts.length) h.push(`<div class="card ${entries[entries.length-1].kind==="pi_action"?"new":""}"><h3>3 · Build by Pi — every action passes the guard</h3>` +
-    acts.map(a => `<div class="act">${a.data.allowed?'<span class="good">✔ allowed</span>':'<span class="blocked">✖ BLOCKED</span>'}<span>${esc(a.data.tool)}</span><code>${esc(a.data.path)}</code>${a.data.allowed?"":`<span class="hint">${esc(a.data.reason)}</span>`}</div>`).join("") + `</div>`);
-  entries.filter(e => e.kind === "pi_error").forEach(e => h.push(`<div class="card"><h3>Pi problem</h3><pre>${esc(e.data.error)}</pre></div>`));
-  entries.filter(e => e.kind === "verify").forEach(e => {
-    const d = e.data, fb = d.fail_before || {status:"skipped"};
-    const fbTxt = {proved:'<span class="good">PROVED</span> — the new tests fail on the old code and pass on the new code', not_proved:'<span class="badc">NOT PROVED</span> — '+esc(fb.note||""), no_tests:'<span class="badc">NO TEST ADDED</span> — '+esc(fb.note||""), skipped:'<span class="hint">not required for this change type</span>'}[fb.status] || "";
-    h.push(`<div class="card"><h3>4 · Verify — tests, scope check, fail-before proof (plain programs, no AI)</h3>
-      <div>${d.ok?'<span class="good">All checks passed</span>':'<span class="badc">Checks failed</span>'}: ${esc(d.summary)}</div>
-      <div style="margin-top:4px"><b>Fail-before / pass-after:</b> ${fbTxt}</div>
-      <div class="hint" style="margin-top:4px">Files changed: ${(d.changed_files||[]).map(f=>`<span class="tag">${esc(f)}</span>`).join("")||"none"}</div>
-      ${d.diff?`<details open><summary>Code diff</summary>${gitDiffHtml(d.diff)}</details>`:""}
-      ${d.test_tail?`<details><summary>Test output</summary><pre>${esc(d.test_tail)}</pre></details>`:""}</div>`);
-  });
-  entries.filter(e => e.kind === "review_after").forEach(e => h.push(`<div class="card gf"><h3>5 · Result checked by Goldfish <span class="hint">(correctness may run on a different model)</span></h3>${reviewCards(e.data.findings, [...ROSTER.after, ...(ROSTER.afterExtra[ct]||[])])}</div>`));
-  const dec = entries.filter(e => e.kind === "decision").pop();
-  if (dec) {
-    const o = dec.data.outcome;
-    h.push(`<div class="card new"><h3>Decision</h3><div class="banner-out"><span class="pill ${o}">${o.toUpperCase().replace("_"," ")}</span><span>${o==="accepted"?"Change merged. Plan, evidence and diff are saved in the repo.":o==="rolled_back"?"Change undone. The repo is exactly as before; the record stays.":"Plan was not approved, so no code was touched."}</span></div>${(dec.data.reasons||[]).map(r=>`<div>• ${esc(r)}</div>`).join("")}</div>`);
   }
-  if (!h.length) h.push(`<div class="card hint">Nothing here yet. Type a request above and press <b>Run governed evolution</b>.</div>`);
-  return h.join("");
+  return m;
 }
+const LENS = {comprehension: "Can a stranger understand the plan?", intent_fit: "Does the plan do what was asked?", verification: "Would the tests really prove it?", scope_rules: "Does it stay inside the allowed files?", readiness: "Is it ready to build?", root_cause: "Is this the real cause?", impact: "What else could this break?", behavior_preserved: "Does behaviour stay the same?", conformance: "Does the change match the plan?", correctness: "Is the new code right?", security: "Any new security hole?", performance: "Any new slowness?"};
+const hhmmss = t => new Date(t * 1000).toLocaleTimeString([], {hour12: false});
+const nowT = () => S.replay ? S.replay.t : Date.now() / 1000;
+const secs = since => Math.max(0, Math.round(nowT() - since));
+const list = items => items && items.length ? `<ul>${items.map(i => `<li>${esc(i)}</li>`).join("")}</ul>` : `<span class="hint">none</span>`;
+const timer = since => `<span data-since="${since}"></span>`;
 
-function planTab(detail, entries) {
-  const vs = detail.versions;
-  if (!vs.length) return `<div class="card hint">No plan yet.</div>`;
-  const out = [`<div class="card"><h3>The plan evolving</h3><div class="hint">Every version of the ECP is kept. Red lines were removed, green lines were added after reviewers found problems.</div></div>`];
-  for (let i = 1; i < vs.length; i++) {
-    const rnd = entries.find(e => e.kind==="revised" && e.data.version===vs[i].n);
-    out.push(`<div class="card"><h3>Version ${vs[i-1].n} → ${vs[i].n}</h3>${diffHtml(lcsDiff(vs[i-1].text, vs[i].text))}</div>`);
+// ======================================================================= sections
+function yq(s) { s = String(s == null ? "" : s); return /^[\w./*@-][\w ./*@()%,+=-]*$/.test(s) && !/^(true|false|null|yes|no|\d+)$/i.test(s) && !/: | #/.test(s) ? s : JSON.stringify(s); }
+function yamlLines(e, o) {
+  const L = [], k = x => `<span class="k">${x}</span>`, v = x => `<span class="s">${esc(yq(x))}</span>`, n = x => `<span class="n">${esc(x)}</span>`;
+  const sc = (key, val, num) => L.push(`${k(key)}: ${num ? n(val) : v(val)}`);
+  const ls = (key, arr, cls) => { if (!arr || !arr.length) return L.push(`${k(key)}: []`); L.push(`${k(key)}:`); arr.forEach(x => L.push(`  - <span class="${cls || "s"}">${esc(yq(x))}</span>`)); };
+  L.push(`<span class="c"># ${esc(e.id)}.md  plan version ${o.version}${o.locked ? "  locked" : "  not locked yet"}</span>`, "---");
+  sc("id", e.id); sc("title", e.title); sc("change_type", e.change_type); sc("risk", e.risk);
+  sc("intent", e.intent);
+  ls("allowed_paths", e.allowed_paths); ls("forbidden_paths", e.forbidden_paths, "no");
+  ls("success_criteria", e.success_criteria); 
+  if (e.verification && e.verification.length) { L.push(`${k("verification")}:`); e.verification.forEach(x => { x = x.description ? x : {description: x}; L.push(`  - ${k("description")}: ${v(x.description)}`); if (x.command) L.push(`    ${k("command")}: ${v(x.command)}`); }); } else L.push(`${k("verification")}: []`);
+  ls("constraints", e.constraints); ls("abort_conditions", e.abort_conditions); sc("rollback", e.rollback || "");
+  if (o.locked) sc("plan_hash", String(o.locked).slice(0, 24));
+  L.push("---");
+  if (e.body) String(e.body).trim().split("\n").forEach(l => L.push(`<span class="c">${esc(l) || " "}</span>`));
+  return L;
+}
+function ecpDoc(e, o) {
+  const L = yamlLines(e, o), a = o.animate;
+  return `<div class="yaml ${a ? "anim" : ""}">${L.map((l, i) => `<div class="ln" ${a ? `style="animation-delay:${Math.min(i * 0.07, 4)}s"` : ""}>${l}</div>`).join("")}</div>`;
+}
+function head(cls, letter, title, sub, state, extra) {
+  const label = {working: `<span class="spin"></span>Working`, done: "Done", fail: "Stopped", error: "Error"}[state] || "";
+  return `<div class="hd"><div class="av ${cls} ${state === "working" ? "working" : ""}">${letter}</div><div><h2>${title}</h2><div class="sub">${sub}</div></div><div class="st ${state}">${label}${extra || ""}</div></div>`;
+}
+function secScout(m) {
+  let h = "";
+  if (m.signals || m.signalsSince) {
+    if (!m.signals) h += `<div class="sec">${head("code", "1", "Plain programs collect signals", "No AI here: tests, security scanner, linter, coverage, git history.", "working", " " + timer(m.signalsSince))}<div class="think"><span class="spin"></span>Running the repository's tests and scanners</div></div>`;
+    else h += `<div class="sec">${head("code", "1", "Plain programs collect signals", `No AI here. ${m.signals.count} signal(s) from real tools.`, "done")}<div class="grid">${Object.entries(m.signals.detectors || {}).map(([k, v]) => `<div class="gf ${v.state === "ran" ? "" : ""}" style="min-height:0"><b>${esc(k)}</b><span class="hint">${esc(v.state)}: ${esc(v.note || "")}</span></div>`).join("")}</div></div>`;
   }
-  if (vs.length === 1) out.push(`<div class="card"><h3>Version 1 (never revised)</h3><pre>${esc(vs[0].text)}</pre></div>`);
-  return out.join("");
+  if (m.elephant.task === "scout") {
+    const w = m.elephant.state === "working";
+    h += `<div class="sec">${head("elephant", "E", "The Elephant reads the code", "Long-context scout: proposes findings, each tied to an exact line.", w ? "working" : "done", w ? " " + timer(m.elephant.since) : "")}
+      ${w ? `<div class="think"><span class="dots"><span></span><span></span><span></span></span>Reading signals and files (${esc(m.elephant.model)})</div>` : `<p class="hint">Proposed ${(m.proposed || []).length} finding(s): ${(m.proposed || []).map(p => esc(p.title)).join("; ") || "none"}</p>`}</div>`;
+  }
+  if (m.claims.length) h += `<div class="sec">${head("fish", "G", "A Goldfish checks every claim", "A fresh reviewer that has seen nothing else. If it cannot confirm a claim, the finding is dropped.", m.discovery ? "done" : "working")}` +
+    m.claims.map(c => `<div class="ck"><div>${c.state === "working" ? '<span class="spin"></span>' : c.state === "true" ? '<span class="okc">&#10003;</span>' : '<span class="badc">&#10007;</span>'}</div><div><b>${esc(c.subject)}</b><div class="hint">${c.state === "working" ? "Reading the file and judging" : esc(c.reason || "")}</div></div></div>`).join("") + `</div>`;
+  if (m.discovery) h += `<div class="sec"><div class="verdict good"><h2>${m.discovery.kept.length} finding(s) kept, ${m.discovery.dropped.length} dropped</h2><div class="hint">They are listed above, ranked by evidence, impact and size of fix. Choose one to evolve.</div></div></div>`;
+  return h;
+}
+function secPlan(m) {
+  if (m.elephant.task === "scout" || m.elephant.state === "idle") return "";
+  const w = m.elephant.state === "working", revised = m.hist.length > 1 || m.elephant.task === "revise";
+  let h = `<div class="sec">${head("elephant", "E", revised ? "The Elephant revises the plan" : "The Elephant writes the plan", "The Evolution Candidate Profile (ECP): what to change, where, and how to prove it. The Elephant never writes code.", w ? "working" : "done", w ? " " + timer(m.elephant.since) : "")}`;
+  if (w) h += `<div class="think"><span class="dots"><span></span><span></span><span></span></span>${m.elephant.task === "revise" ? `Revising the plan to answer ${m.elephant.problems || "the"} blocking problem(s)` : "Reading the repository and drafting the plan"} (${esc(m.elephant.model)})</div>`;
+  if (m.ecp && !w) {
+    const key = "ecp" + m.hist[m.hist.length - 1], animate = !S.seenAnim.has(key) && !S.replayFast;
+    S.seenAnim.add(key);
+    const doc = ecpDoc(m.ecp, {animate, version: m.version, locked: m.locked});
+    h += m.rounds.length ? `<details class="fold" ${S.openEcp ? "open" : ""} ontoggle="S.openEcp=this.open"><summary>${esc(m.ecp.id)} &middot; ${esc(m.ecp.title)} <span class="hint">&middot; ${m.locked ? "locked" : "not locked yet"} &middot; click to read the plan</span></summary>${doc}</details>` : doc;
+    if (m.hist.length > 1) h += `<p class="hint" style="margin-top:8px">The plan was revised ${m.hist.length - 1} time(s) after review. Earlier versions are in the Record tab.</p>`;
+  }
+  return h + `</div>`;
+}
+function card(name, c) {
+  const st = c ? c.state : "queued", fs = (c && c.findings) || [], block = fs.some(f => f.severity === "blocker");
+  const cls = st === "working" ? "working" : st === "done" ? (block ? "blocker" : "clean") : "";
+  const res = st === "working" ? '<span class="spin"></span>' : st === "done" ? (fs.length ? `<span class="${block ? "badc" : ""}" style="${block ? "" : "color:var(--warn)"}">${fs.length} finding${fs.length > 1 ? "s" : ""}</span>` : '<span class="okc">Clean</span>') : st === "error" ? '<span class="badc">Error</span>' : '<span class="hint">Waiting</span>';
+  return `<div class="gf ${cls}"><div class="tp"><div class="av fish" style="width:28px;height:28px;font-size:13px">G</div><div style="min-width:0"><div class="nm">${esc(name.replace(/_/g, " "))}</div><div class="md">${esc((c && c.model) || "")}</div></div><div class="rs">${res}</div></div>
+    <div class="why">${esc(LENS[name] || "")}</div>${st === "working" ? `<div class="hint">Reading with fresh eyes ${timer(c.since)}</div>` : ""}${st === "error" ? `<div class="fnd blocker">${esc(c.error)}</div>` : ""}
+    ${fs.map(f => `<div class="fnd ${esc(f.severity)}"><b>${esc(f.severity)}</b>${esc(f.claim || "")}${f.location ? `<div class="hint mono">${esc(f.location)}</div>` : ""}${f.suggested_fix ? `<div class="hint">Fix: ${esc(f.suggested_fix)}</div>` : ""}</div>`).join("")}</div>`;
+}
+function secReviews(m, phase) {
+  const rs = m.rounds.filter(r => r.phase === phase); if (!rs.length) return "";
+  const any = rs.some(r => !r.done);
+  return `<div class="sec">${head("fish", "G", phase === "before" ? "Goldfish review the plan, before any code exists" : "Goldfish review the finished change", phase === "before" ? "Each is a fresh reviewer with no context except the plan. They run at the same time and can block it." : "Fresh reviewers again. They see only the plan and the change, never Pi's reasoning.", any ? "working" : "done")}` +
+    rs.map(r => `<div class="round"><p class="rt">${phase === "before" ? `Round ${r.round} &middot; ` : ""}${r.lenses.length} reviewers${r.done ? ` &middot; ${r.blocking ? `<span class="badc">${r.blocking} blocking</span>` : '<span class="okc">no blockers</span>'}` : ""}</p><div class="grid">${r.lenses.map(n => card(n, r.cards[n])).join("")}</div></div>`).join("") + `</div>`;
+}
+const secGate = (m, stage) => m.gates.filter(g => g.stage === stage).map(g => `<div class="sec"><div class="gate"><span class="${g.go ? "okc" : "badc"}">&#9679;</span><div><b>${stage === "plan" ? "Gate: may Pi start building?" : "Gate: may this be accepted?"}</b> ${g.go ? "Yes" : "No"}<div class="hint">${esc(g.how)} &middot; risk ${esc(g.risk)}</div></div></div></div>`).join("");
+function secPi(m) {
+  if (!m.pi) return ""; const p = m.pi, w = p.state === "working";
+  return `<div class="sec">${head("pi", "P", "Pi builds it, inside a fence", `Branch <code>${esc(p.branch)}</code>. Every file touch is checked against the allowed list.`, w ? "working" : p.state === "error" ? "error" : "done", w ? " " + timer(p.since) : "")}
+    <div class="term">${p.actions.map(a => `<div class="act ${a.allowed ? "" : "blocked"}"><span class="k">${esc(a.tool)}</span><span class="p">${esc(a.path)}</span><span class="${a.allowed ? "ok" : "no"}">${a.allowed ? "allowed" : "BLOCKED " + esc(a.reason || "")}</span></div>`).join("") || `<span style="color:#98a2b3">${w ? "Waiting for Pi's first move" : "Pi made no edits"}</span>`}</div>
+    ${p.error ? `<div class="err">${esc(p.error)}</div>` : ""}</div>`;
+}
+const diffHtml = t => `<div class="diff">${String(t || "").split("\n").map(l => `<div class="${l.startsWith("@@") ? "h" : l.startsWith("+++") || l.startsWith("---") ? "" : l.startsWith("+") ? "a" : l.startsWith("-") ? "d" : ""}">${esc(l) || " "}</div>`).join("")}</div>`;
+const STEP = {scope: "Only planned files changed", tests: "The repository's tests", fail_before: "Proof: the new tests fail on the old code"};
+function secVerify(m) {
+  const v = m.verify; if (!v) return "";
+  return `<div class="sec">${head("code", "V", "Verify with real checks", "Run by plain code, not by an AI.", v.state === "working" ? "working" : v.state === "fail" ? "fail" : "done")}
+    ${v.order.map(n => { const s = v.steps[n]; return `<div class="ck"><div>${s.state === "running" ? '<span class="spin"></span>' : s.state === "ok" ? '<span class="okc">&#10003;</span>' : '<span class="badc">&#10007;</span>'}</div><div><b>${esc(STEP[n] || n)}</b><div class="nt">${esc(s.note || "")}</div></div></div>`; }).join("") || '<div class="think">Starting checks</div>'}
+    ${v.diff ? `<details class="p" open><summary>The actual change (${(v.changed || []).length} file${(v.changed || []).length === 1 ? "" : "s"})</summary>${diffHtml(v.diff)}</details>` : ""}</div>`;
+}
+function secDecision(m) {
+  const d = m.decision; if (!d) return "";
+  const cls = {accepted: "good", rolled_back: "bad", rejected: "bad"}[d.outcome] || "mid", word = {accepted: "Accepted", rolled_back: "Rolled back", rejected: "Rejected"}[d.outcome] || d.outcome;
+  return `<div class="sec"><div class="verdict ${cls}"><h2>${esc(word)}</h2><ul>${(d.reasons || []).map(r => `<li>${esc(r)}</li>`).join("") || "<li>All checks passed.</li>"}</ul></div></div>`;
+}
+function pipeline(m) {
+  if (!m.phase || m.phase === "prep") return "";
+  const evolving = m.job === "run" || !!m.ecp;
+  const list = evolving ? ["Plan", "Review", "Build", "Verify", "Judge", "Decide"] : ["Signals", "Elephant", "Check", "Findings"];
+  const map = evolving ? {plan: 0, review: 1, gate: 1, build: 2, verify: 3, after: 4, decision: 5} : {signals: 0, scout: 1, check: 2, discovered: 3};
+  const cur = map[m.phase] ?? 0, fin = !!m.decision || !!m.discovery, bad = m.decision && ["rolled_back", "rejected"].includes(m.decision.outcome);
+  return `<div class="pipe">${list.map((s, i) => `<div class="ps ${fin || i < cur ? "done" : i === cur ? "active" : ""} ${bad && i === list.length - 1 ? "fail" : ""}">${s}</div>`).join("")}</div>`;
 }
 
-function evidenceTab(detail, entries) {
-  return `<div class="card"><h3>Evidence trail — append-only, hash-chained · chain ${detail.chain_intact?'<span class="good">intact</span>':'<span class="badc">BROKEN</span>'}</h3>
-    <div class="hint">File: .evolution/evidence/${esc(detail.id)}.jsonl</div>` +
-    entries.map(e => `<div class="ev"><span class="hint">${esc(e.time.slice(11))}</span> <span class="k">${esc(e.kind)}</span> <span class="hint">#${esc(e.hash)}</span> ${esc(JSON.stringify(e.data)).slice(0,260)}</div>`).join("") + `</div>`;
+// ---------------------------------------------------------------- getting a repository ready
+function prepSteps(m) {
+  const ing = S.ing || {}, ov = S.ov, doneIng = ing.state === "done" || (ov && ov.connected && ing.state !== "working");
+  const local = (ing.lines || []).some(l => l.startsWith("Using the local"));
+  const pct = ing.percent || 0, phase = ing.step || "";
+  const st = n => m.prep.steps[n] || null;
+  const mapS = s => !s ? "pending" : s.state === "running" ? "going" : s.state === "ok" ? "done" : "fail";
+  const rows = [];
+  rows.push({t: "Check the link", n: ing.spec ? esc(ing.spec) : "", s: ing.state === "idle" ? "pending" : (ing.lines || []).length || doneIng ? "done" : "going"});
+  rows.push({t: local ? "Use the local repository" : "Download the repository", n: ing.state === "working" && !local ? `${esc(phase || "starting")} ${pct}%<div class="bar"><i style="width:${pct}%"></i></div>` : (ing.lines || []).slice(-1)[0] ? esc(ing.lines.slice(-1)[0]) : "", s: doneIng ? "done" : ing.state === "working" ? ((ing.lines || []).length ? "going" : "pending") : "pending"});
+  rows.push({t: "Create a private environment", n: st("environment") ? esc(st("environment").note) : "", s: mapS(st("environment")) === "pending" && st("dependencies") ? "done" : mapS(st("environment"))});
+  rows.push({t: "Install dependencies", n: st("dependencies") ? esc(st("dependencies").note) : "", s: mapS(st("dependencies"))});
+  rows.push({t: "Run the tests for a baseline", n: st("baseline") ? esc(st("baseline").note) : "", s: mapS(st("baseline"))});
+  return rows;
+}
+function prepCard(m) {
+  const rows = prepSteps(m);
+  return `<div class="hero" style="margin-top:9vh"><h1>Getting the repository ready</h1><p>It is downloaded, given its own private environment, and its tests are run once so every later change can be compared with a known baseline.</p>
+    <div class="card steps">${rows.map(r => `<div class="stp ${r.s}"><div class="mark">${r.s === "done" ? "&#10003;" : r.s === "fail" ? "!" : ""}</div><div><div class="t">${r.t}</div><div class="n">${r.n || ""}</div></div></div>`).join("")}</div></div>`;
+}
+function connectCard() {
+  const ing = S.ing || {};
+  return `<div class="hero"><h1>Which repository should evolve?</h1><p>Paste a GitHub link, or the path of a git folder on this computer.</p>
+    <div class="row"><input id="repoin" placeholder="https://github.com/owner/repo" value="${esc(S.draft || "")}" autofocus><button class="btn primary" id="connect">Connect</button></div>
+    ${ing.state === "error" ? `<div class="err">${esc(ing.error)}</div>` : ""}
+    <p class="examples">Also accepted: <code data-ex="https://github.com/owner/repo/tree/branch">link to a branch</code> <code data-ex="owner/repo">owner/repo</code> <code data-ex="git@github.com:owner/repo.git">ssh link</code> <code data-ex="D:\\projects\\my-repo">local folder</code>. Private GitHub repositories need GITHUB_TOKEN in the .env file.</p></div>`;
 }
 
-async function filesTab() {
-  const names = [["ECP file", "ecp:"+S.sel], ["config.yaml","config"], ["rules.md","rules"], ["history.jsonl","history"]];
-  const parts = await Promise.all(names.map(async ([t,k]) => `<div class="card"><h3>${esc(t)}</h3><pre>${esc((await get("/api/file?name="+encodeURIComponent(k))).text || "(empty)")}</pre></div>`));
-  return `<div class="hint" style="margin-bottom:8px">These are the real files in the repo under <code>.evolution/</code>.</div>` + parts.join("");
+// ======================================================================= the live tab
+function liveView() {
+  const evs = S.replay ? S.events.slice(0, S.rpos) : S.events, m = reduce(evs), pa = S.live && S.live.pending_approval;
+  let h = "";
+  if (pa && !S.replay) h += `<div class="banner"><span><b>Your approval is needed.</b> ${esc(pa.question)}</span><button class="btn primary sm" id="yes">Approve</button><button class="btn sm" id="no">Reject</button></div>`;
+  if (S.replay) h += `<div class="rbar"><button class="btn sm" id="play">${playT ? "Pause" : "Replay"}</button><input type="range" id="slider" min="0" max="${S.events.length}" value="${S.rpos}"><span class="hint">${S.events.length ? `event ${S.rpos} of ${S.events.length}` : "No live feed was saved for this run. See the Record tab."}</span><button class="btn sm" id="golive">Back to live</button></div>`;
+  if (!evs.length) h += `<div class="empty"><h2>Nothing is running</h2><p>Use Discover problems to find what is worth fixing, or describe a change above. Every agent will appear here as it works.</p></div>`;
+  else h += pipeline(m) + secScout(m) + secPlan(m) + secReviews(m, "before") + secGate(m, "plan") + secPi(m) + secVerify(m) + secReviews(m, "after") + secGate(m, "result") + secDecision(m);
+  return h;
 }
 
-function compareTab() {
-  const c = S.ov && S.ov.compare;
-  if (!c) return `<div class="card hint">No comparison yet. Type a request and press <b>Compare: plain vs governed</b>. The same request is run twice: once with a plain agent (no plan, no review, no limits), once governed.</div>`;
-  const p = c.plain, g = c.governed, yn = b => b ? '<span class="good">yes</span>' : '<span class="badc">no</span>';
-  return `<div class="card"><h3>Same request, with and without governance</h3><div>${esc(c.request)}</div>
-    <table style="margin-top:8px"><tr><th></th><th>Plain agent</th><th>Governed (ECP)</th></tr>
-    <tr><td>Written plan before changing code</td><td>${yn(p.had_plan)}</td><td>${yn(g.had_plan)}</td></tr>
-    <tr><td>Independent review of the plan</td><td>${yn(p.had_review)}</td><td>${yn(g.had_review)} (${g.rounds} round${g.rounds===1?"":"s"})</td></tr>
-    <tr><td>Edits limited to declared files</td><td>${yn(p.had_scope_limit)}</td><td>${yn(g.had_scope_limit)} (${g.blocked_attempts.length} blocked)</td></tr>
-    <tr><td>Files it changed</td><td>${p.changed_files.map(f=>`<span class="tag ${c.plain_outside_governed_scope.includes(f)?"no":""}">${esc(f)}</span>`).join("")||"none"}</td><td>${g.allowed_paths.map(f=>`<span class="tag yes">${esc(f)}</span>`).join("")}</td></tr>
-    <tr><td>Changes outside what the task needed</td><td class="${c.plain_outside_governed_scope.length?"badc":"good"}">${c.plain_outside_governed_scope.length}</td><td class="good">0</td></tr>
-    <tr><td>Proof the new test fails on old code</td><td>not checked</td><td>checked</td></tr>
-    <tr><td>Permanent record of what and why</td><td>${yn(p.had_record)}</td><td>${yn(g.had_record)}</td></tr>
-    <tr><td>Result</td><td class="${p.tests_ok?"good":"badc"}">tests ${p.tests_ok?"pass":"FAIL"} · nobody reviewed it</td><td><span class="pill ${g.outcome}">${g.outcome.toUpperCase().replace("_"," ")}</span></td></tr></table></div>`;
-}
-
-const TABS = [["story","Story"],["plan","Plan versions"],["evidence","Evidence log"],["files","Repo files"],["compare","Plain vs governed"]];
-async function render() {
-  const ov = S.ov; if (!ov) return;
-  $("repo").textContent = ov.repo; $("prov").textContent = ov.config.provider||"-"; $("pi").textContent = ov.config.pi||"-"; $("sbx").textContent = ov.config.sandbox||"none";
-  $("list").innerHTML = ov.ecps.length ? ov.ecps.map(e => `<div class="item ${e.id===S.sel?"sel":""}" data-id="${e.id}"><div class="t">${esc(e.id)} <span class="pill ${e.outcome||"running"}">${esc((e.outcome||e.status).toUpperCase().replace("_"," "))}</span></div><div>${esc(e.title)}</div><div class="hint">${esc(e.change_type)} · ${e.events} events</div></div>`).join("") : `<div class="hint">none yet</div>`;
-  $("list").querySelectorAll(".item").forEach(el => el.onclick = () => { S.sel = el.dataset.id; S.follow = true; S.lastSig=""; refresh(); });
-  $("hist").innerHTML = ov.history.length ? ov.history.map(h => `<div style="margin-bottom:4px"><b>${esc(h.id)}</b> <span class="${h.outcome==="accepted"?"good":"badc"}">${esc(h.outcome)}</span><div class="hint">${esc(h.summary).slice(0,90)}</div></div>`).join("") : "none yet";
-  $("tabs").innerHTML = TABS.map(([k,t]) => `<button class="${S.tab===k?"on":""}" data-k="${k}">${t}</button>`).join("");
-  $("tabs").querySelectorAll("button").forEach(b => b.onclick = () => { S.tab = b.dataset.k; render(); });
+// ======================================================================= record, files
+async function recordView() {
+  const id = S.sel || ((S.ov.ecps || []).slice(-1)[0] || {}).id;
+  if (!id) return `<p class="hint">No run yet. Every run writes a tamper-evident evidence log, shown here.</p>`;
+  if (!S.detail || S.detail.id !== id) S.detail = await get("/api/ecp/" + id);
   const d = S.detail;
-  const total = d ? d.evidence.length : 0;
-  $("slider").max = total; if (S.follow) S.n = total;
-  $("slider").value = S.n; $("pos").textContent = d ? `${S.n} / ${total} events` : "";
-  $("live").style.opacity = S.follow ? 1 : .55;
-  const entries = d ? d.evidence.slice(0, S.n) : [];
-  $("stepper").innerHTML = steps(entries);
-  let ct = ((d && planAt(d, entries)) || {fields:{}}).fields.change_type || "bug";
+  return `<p class="hint" style="margin-bottom:10px">${esc(id)} &middot; ${d.chain_intact ? '<span class="okc">chain intact</span>' : '<span class="badc">CHAIN BROKEN</span>'}. Each entry holds the fingerprint of the one before it, so nothing can be edited without being noticed.</p>
+    ${d.evidence.map((e, i) => `<details class="p"><summary><span class="mono" style="color:var(--accent)">#${i + 1}</span> ${esc(e.kind)} <span class="hint">${esc(e.time || "")}</span></summary><pre>${esc(JSON.stringify(e.data, null, 1).slice(0, 6000))}</pre></details>`).join("")}
+    ${d.versions.map(v => `<details class="p"><summary>Plan version ${v.n}</summary><pre>${esc(v.text)}</pre></details>`).join("")}`;
+}
+async function filesView() {
+  const names = [["config.yaml", "config"], ["rules.md", "rules"], ["history.jsonl", "history"]].concat(S.sel ? [[S.sel + ".md", "ecp:" + S.sel]] : []);
+  return (await Promise.all(names.map(async ([t, k]) => `<details class="p"><summary class="mono">${esc(t)}</summary><pre>${esc((await get("/api/file?name=" + encodeURIComponent(k))).text || "(empty)")}</pre></details>`))).join("");
+}
+function findingsHtml() {
+  const fs = S.ov.findings || [], busy = !!(S.live && S.live.running);
+  if (!fs.length) return "";
+  return `<div class="block"><p class="label">Findings (${fs.length})</p><div class="fgrid">${fs.map(f => `<div class="finding"><div><span class="ev">${[1, 2, 3].map(i => `<b class="${i <= f.evidence ? "on" : ""}"></b>`).join("")}</span><span class="mtag">${esc(f.metric)} &middot; ${["", "AI reading only", "a tool agrees", "reproduced"][f.evidence] || ""}</span></div>
+    <div class="t">${esc(f.title)}</div><div class="f mono">${esc(f.file)}:${esc(f.line)} &middot; ${esc(f.impact)} impact &middot; ${esc(f.fix_size)} fix</div>
+    ${f.status === "open" ? `<button class="btn sm primary" data-fid="${esc(f.id)}" ${busy ? "disabled" : ""}>Evolve this</button>` : `<span class="hint">${esc(f.status)}${f.outcome ? ": " + esc(f.outcome) : ""}</span>`}</div>`).join("")}</div></div>`;
+}
+function runsHtml() {
+  const ecps = (S.ov.ecps || []).slice().reverse(); if (!ecps.length) return "";
+  return `<div class="block"><p class="label">Previous runs</p><div class="card" style="padding:6px 16px">${ecps.map(e => { const o = e.outcome || e.status || "", c = /accepted/.test(o) ? "good" : /roll|reject|abort/.test(o) ? "bad" : "warn"; return `<div class="run ${S.sel === e.id ? "sel" : ""}" data-id="${esc(e.id)}"><span class="mono" style="color:var(--elephant)">${esc(e.id)}</span><span class="t">${esc(e.title || "")}</span><span class="chip ${c}">${esc(o || "...")}</span></div>`; }).join("")}</div></div>`;
+}
+// ======================================================================= page
+function repoHeader() {
+  const r = S.ov.repo, p = S.ov.prepare, b = p && p.baseline;
+  return `<div class="rhead"><div><h1>${esc(r.name)}</h1><div class="meta"><span>${esc(r.branch)} @ ${esc(r.commit)}</span><span>${r.files} files</span><span>${(r.languages || []).map(l => esc(l.name)).join(", ") || "no known language"}</span><span>${r.commits} commits</span>${r.url ? `<span class="mono">${esc(r.url.replace(/^https?:\/\//, ""))}</span>` : ""}</div></div><div class="sp"></div>
+    <div>${b ? `<span class="chip ${b.ok ? "good" : "bad"}">Baseline tests ${b.ok ? "pass" : "fail"}</span>` : `<span class="chip">No baseline yet</span>`} <button class="link" id="reprep" style="margin-left:8px">Reinstall dependencies</button></div></div>
+    ${b && !b.ok && b.detail ? `<details class="p"><summary class="badc">Why the baseline fails</summary><pre>${esc(b.detail)}</pre></details>` : ""}`;
+}
+async function render() {
+  const ov = S.ov, conn = ov && ov.connected, ing = S.ing || {};
+  $("dock").style.display = conn || S.events.length ? "" : "none";
+  $("crumb").innerHTML = conn ? `<span>/</span><b>${esc(ov.repo.name)}</b><span>${esc(ov.repo.branch)}</span>` : "";
+  const st = $("stage"), busy = !!(S.live && S.live.running);
   let html = "";
-  if (S.tab === "story") html = d ? story(d, entries, ct) : story({versions:[]}, [], "bug");
-  else if (S.tab === "plan") html = d ? planTab(d, entries) : "";
-  else if (S.tab === "evidence") html = d ? evidenceTab(d, entries) : "";
-  else if (S.tab === "files") html = d ? await filesTab() : `<div class="card hint">No ECP yet.</div>`;
-  else html = compareTab();
-  const sig = S.tab + "|" + S.sel + "|" + S.n + "|" + html.length;
-  if (sig !== S.lastSig) { S.lastSig = sig; $("view").innerHTML = html; }
+  const live = S.live || {}, prepRunning = live.running && live.kind === "prepare", ingWorking = ing.state === "working";
+  const m = reduce(S.events);
+  if (!conn || S.switching) html = (ingWorking ? prepCard(m) : connectCard());
+  else if (ingWorking || prepRunning) html = prepCard(m);
+  else {
+    const rec = S.openRec ? await recordView() : "", files = S.openFiles ? await filesView() : "";
+    html = `<div class="wrap">${repoHeader()}
+      <div class="actions"><input id="req" placeholder="Describe a change, or let Evolve find problems first"><button class="btn" id="run" ${busy ? "disabled" : ""}>Evolve</button><button class="btn primary" id="disc" ${busy ? "disabled" : ""}>Discover problems</button></div>
+      ${findingsHtml()}${runsHtml()}
+      <div class="block">${liveView()}</div>
+      <div class="block"><details class="p" id="drec" ${S.openRec ? "open" : ""}><summary>Evidence log and plan versions</summary><div style="margin-top:10px">${rec}</div></details>
+      <details class="p" id="dfiles" ${S.openFiles ? "open" : ""}><summary>Files in .evolution</summary><div style="margin-top:10px">${files}</div></details>
+      <p style="margin-top:14px"><button class="link" id="other">Connect a different repository</button></p></div></div>`;
+  }
+  if (S.paint.main !== html) {
+    const keep = st.scrollTop, focus = document.activeElement && document.activeElement.id;
+    st.innerHTML = html; S.paint.main = html;
+    const follow = S.follow && (live.running || S.replay);
+    if (follow && conn) st.scrollTop = st.scrollHeight; else st.scrollTop = keep;
+    if ($("req")) $("req").value = S.req || "";
+    if (focus === "repoin" && $("repoin")) $("repoin").focus();
+    if (focus === "req" && $("req")) $("req").focus();
+    bind();
+  }
+  tick();
+}
+function bind() {
+  if ($("connect")) { $("connect").onclick = connect; $("repoin").onkeydown = e => { if (e.key === "Enter") connect(); }; $("repoin").oninput = e => S.draft = e.target.value; document.querySelectorAll("[data-ex]").forEach(c => c.onclick = () => { $("repoin").value = c.dataset.ex; S.draft = c.dataset.ex; $("repoin").focus(); }); }
+  if ($("req")) { $("req").oninput = e => S.req = e.target.value; $("req").onkeydown = e => { if (e.key === "Enter" && e.target.value.trim()) start("/api/start"); }; }
+  if ($("run")) $("run").onclick = () => start("/api/start");
+  if ($("disc")) $("disc").onclick = () => start("/api/discover");
+  if ($("other")) $("other").onclick = () => { S.switching = true; S.ing = {state: "idle"}; S.paint.main = ""; render(); };
+  document.querySelectorAll("[data-fid]").forEach(b => b.onclick = () => start("/api/start", b.dataset.fid));
+  document.querySelectorAll("[data-id]").forEach(r => r.onclick = () => openRun(r.dataset.id));
+  if ($("drec")) $("drec").ontoggle = e => { if (S.openRec !== e.target.open) { S.openRec = e.target.open; S.paint.main = ""; render(); } };
+  if ($("dfiles")) $("dfiles").ontoggle = e => { if (S.openFiles !== e.target.open) { S.openFiles = e.target.open; S.paint.main = ""; render(); } };
+  if ($("yes")) { $("yes").onclick = () => post("/api/approve", {approve: true}).then(refresh); $("no").onclick = () => post("/api/approve", {approve: false}).then(refresh); }
+  if ($("reprep")) $("reprep").onclick = async () => { const r = await post("/api/prepare"); if (r.error) alert(r.error); S.events = []; S.after = 0; refresh(); };
+  if ($("play")) $("play").onclick = play;
+  if ($("slider")) $("slider").oninput = e => { stopPlay(); S.rpos = +e.target.value; S.replay.t = S.rpos ? S.events[S.rpos - 1].t : 0; S.replayFast = true; S.paint.main = ""; render(); };
+  if ($("golive")) $("golive").onclick = async () => { stopPlay(); S.replay = null; S.follow = true; S.after = 0; S.events = []; S.sel = null; S.paint = {}; await refresh(); };
+}
+let playT = null;
+function stopPlay() { if (playT) { clearTimeout(playT); playT = null; } }
+function play() {
+  if (playT) { stopPlay(); S.paint.main = ""; return render(); }
+  if (S.rpos >= S.events.length) S.rpos = 0;
+  S.replayFast = false; S.seenAnim = new Set(); S.follow = true;
+  const step = () => {
+    if (S.rpos >= S.events.length) { playT = null; S.paint.main = ""; return render(); }
+    const cur = S.events[S.rpos]; S.rpos++; S.replay.t = cur.t; render();
+    const nxt = S.events[S.rpos]; playT = setTimeout(step, nxt ? Math.min(1400, Math.max(200, (nxt.t - cur.t) * 250)) : 100);
+  };
+  step();
+}
+function tick() { document.querySelectorAll("[data-since]").forEach(e => e.textContent = secs(+e.dataset.since) + "s"); }
+
+async function openRun(id) {
+  S.sel = id; S.follow = false; S.detail = null; S.seenAnim = new Set(); S.replayFast = true; stopPlay();
+  S.events = await get("/api/events?ecp=" + id);
+  S.replay = {t: S.events.length ? S.events[S.events.length - 1].t : 0}; S.rpos = S.events.length; S.paint = {}; render();
+}
+function renderLog() {
+  const box = $("log");
+  if (S.dock === "raw") { const t = (S.live && S.live.log) || "(nothing yet)"; if (S.paint.log !== "raw" + t) { S.paint.log = "raw" + t; box.innerHTML = `<pre style="margin:0;white-space:pre-wrap">${esc(t)}</pre>`; box.scrollTop = box.scrollHeight; } return; }
+  const evs = S.replay ? S.events.slice(0, S.rpos) : S.events, key = "a" + evs.length + (S.replay ? "r" : "") + (evs[0] ? evs[0].seq : "");
+  if (S.paint.log === key) return; S.paint.log = key;
+  box.innerHTML = evs.map(e => { const [w, t] = describe(e); return `<div class="l"><span class="tm">${hhmmss(e.t)}</span><span class="who ${w}">${w}</span><span class="msg">${esc(t)}</span></div>`; }).join("") || '<span class="hint">Activity from every agent will stream here.</span>';
+  box.scrollTop = box.scrollHeight;
+}
+function describe(e) {
+  const d = e.data;
+  switch (e.kind) {
+    case "job_start": return ["system", ({run: "evolution started", discover: "discovery started", prepare: "preparing the repository"})[d.job] || d.job];
+    case "prep_step": return ["system", `${d.name}: ${d.state}${d.note ? " - " + d.note : ""}`];
+    case "prep_done": return ["system", d.baseline ? `baseline tests ${d.baseline.ok ? "pass" : "fail"}` : "prepared"];
+    case "signals_start": return ["system", "running tests, scanners and git history"];
+    case "signals": return ["system", `collected ${d.count} signals from ${Object.keys(d.detectors || {}).length} programs`];
+    case "elephant_start": return ["elephant", d.task === "scout" ? `reading the repository to find problems (${d.model})` : d.task === "revise" ? `revising the plan (${d.problems} blocking problem(s))` : `drafting the plan (${d.model})`];
+    case "elephant_done": return ["elephant", d.task === "scout" ? `proposed ${d.proposed.length} finding(s)` : `plan ready: ${d.ecp.id} "${d.ecp.title}"`];
+    case "review_start": return ["goldfish", `${d.phase === "before" ? "reviewing the plan" : "reviewing the change"}: ${d.lenses.join(", ")}`];
+    case "goldfish_start": return ["goldfish", `${d.lens}: started${d.subject ? " - " + d.subject : ""}`];
+    case "goldfish_done": return ["goldfish", d.lens === "claim" ? `claim ${d.verdict ? "confirmed" : "REJECTED"}: ${d.subject}` : `${d.lens}: ${d.error ? "ERROR " + d.error : (d.findings.length ? d.findings.length + " finding(s)" : "clean")}${d.seconds != null ? ` (${d.seconds}s)` : ""}`];
+    case "review_done": return ["goldfish", `${d.phase} review finished, ${d.blocking} blocking`];
+    case "gate": return ["gate", `${d.stage}: ${d.go ? "GO" : "STOP"} - ${d.how}`];
+    case "locked": return ["gate", `plan locked (${String(d.hash).slice(0, 12)})`];
+    case "pi_start": return ["pi", `building on ${d.branch}`];
+    case "pi_action": return ["pi", `${d.tool} ${d.path} ${d.allowed ? "allowed" : "BLOCKED"}`];
+    case "pi_done": return ["pi", `finished: ${d.applied} applied, ${d.blocked} blocked${d.error ? " - " + d.error : ""}`];
+    case "verify_start": return ["verify", "running checks"];
+    case "verify_step": return ["verify", `${d.name}: ${d.state}${d.note ? " - " + d.note : ""}`];
+    case "verify_done": return ["verify", d.summary];
+    case "decision": return ["system", `decision: ${d.outcome}`];
+    case "discovery_done": return ["system", `${d.kept.length} finding(s) kept, ${d.dropped.length} dropped`];
+  }
+  return ["system", e.kind];
 }
 
 async function refresh() {
   try {
-    const [ov, live] = await Promise.all([get("/api/overview"), get("/api/live")]);
-    S.ov = ov; S.live = live;
-    if (ov.ecps.length) { const newest = ov.ecps[ov.ecps.length-1].id; if (!S.sel || (live.running && S.follow && S.sel !== newest)) S.sel = newest; }
-    S.detail = S.sel ? await get("/api/ecp/" + S.sel) : null;
-    $("livedot").className = "dot" + (live.running ? " live" : ""); $("livetxt").textContent = live.running ? "run in progress" : "idle";
-    $("log").textContent = live.log || ""; $("log").scrollTop = $("log").scrollHeight;
-    const pa = live.pending_approval; $("banner").style.display = pa ? "block" : "none"; if (pa) $("bq").textContent = "Human approval needed: " + pa.question;
-    $("run").disabled = $("cmp").disabled = live.running;
-    $("scen").style.display = ov.demo ? "" : "none"; $("reset").style.display = ov.demo ? "" : "none";
-    if (ov.demo && $("scen").options.length !== ov.scenarios.length) $("scen").innerHTML = `<option value="">(type my own request)</option>` + ov.scenarios.map(s => `<option>${s}</option>`).join("");
-    await render();
-  } catch (e) { $("livetxt").textContent = "dashboard offline: " + e; }
+    const [ov, live, ing] = await Promise.all([get("/api/overview"), get("/api/live"), get("/api/ingest")]);
+    const was = S.ov && S.ov.connected && S.ov.repo && S.ov.repo.name;
+    S.ov = ov; S.live = live; S.ing = ing;
+    if (ov.connected && ing.state === "done" && S.switching) S.switching = false;
+    if (ov.connected && was && was !== ov.repo.name) { S.events = []; S.after = 0; S.paint = {}; S.sel = null; S.replay = null; }
+    if (!S.replay && ov.connected) {
+      const more = await get("/api/events?after=" + S.after);
+      if (more.length) { S.events = S.events.concat(more); S.after = more[more.length - 1].seq; }
+      else if (S.after > 0 && live.running) { const first = await get("/api/events?after=0"); if (first.length && first.length < S.events.length) { S.events = first; S.after = first[first.length - 1].seq; S.paint = {}; S.seenAnim = new Set(); } }
+    }
+    const k = live.running ? ({prepare: "Preparing the repository", discover: "Discovering problems", run: "Evolving"}[live.kind] || "Working") : ing.state === "working" ? "Downloading" : "Idle";
+    $("livedot").className = "dot" + (live.running || ing.state === "working" ? " on" : ""); $("livetxt").textContent = k;
+    await azure(); renderLog(); await render();
+  } catch (e) { $("livedot").className = "dot bad"; $("livetxt").textContent = "Dashboard offline"; }
 }
-
-async function start(kind) {
-  const r = await post(kind, {request: $("req").value, scenario: $("scen").value || null});
+async function azure() {
+  if (Date.now() - S.azAt < 15000) return; S.azAt = Date.now();
+  const a = await get("/api/azure"); S.az = a;
+  $("azdot").className = "dot " + (a.missing.length ? "bad" : "on"); $("aztxt").textContent = a.missing.length ? "Azure not set up" : "Azure: " + (a.values.AZURE_OPENAI_DEPLOYMENT || "ready");
+}
+async function start(kind, finding) {
+  if (S.az && S.az.missing.length) return openSettings();
+  const r = await post(kind, {request: finding ? "" : (S.req || ""), finding: finding || null});
   if (r.error) return alert(r.error);
-  if (kind === "/api/compare") S.tab = "compare";
-  S.follow = true; S.lastSig = ""; if (kind === "/api/start") S.tab = "story"; refresh();
+  stopPlay(); S.replay = null; S.events = []; S.after = 0; S.paint = {}; S.follow = true; S.sel = null; S.seenAnim = new Set(); S.replayFast = false;
+  setTimeout(refresh, 300);
 }
-$("run").onclick = () => start("/api/start");
-$("cmp").onclick = () => start("/api/compare");
-$("reset").onclick = async () => { const r = await post("/api/reset"); if (r.error) alert(r.error); S.sel = null; S.detail = null; S.lastSig = ""; refresh(); };
-$("yes").onclick = () => post("/api/approve", {approve:true}).then(refresh);
-$("no").onclick = () => post("/api/approve", {approve:false}).then(refresh);
-$("live").onclick = () => { S.follow = true; clearInterval(S.timer); S.timer = null; $("play").textContent = "▶ Replay"; refresh(); };
-$("slider").oninput = e => { S.follow = false; S.n = +e.target.value; clearInterval(S.timer); S.timer = null; $("play").textContent = "▶ Replay"; render(); };
-$("play").onclick = () => {
-  if (S.timer) { clearInterval(S.timer); S.timer = null; $("play").textContent = "▶ Replay"; return; }
-  S.follow = false; if (S.n >= (S.detail ? S.detail.evidence.length : 0)) S.n = 0;
-  $("play").textContent = "❚❚ Pause";
-  S.timer = setInterval(() => { const tot = S.detail.evidence.length; if (S.n >= tot) { clearInterval(S.timer); S.timer = null; $("play").textContent = "▶ Replay"; return; } S.n++; render(); }, 900);
-};
-refresh(); setInterval(() => { if (!S.timer) refresh(); }, 1200);
+async function connect() {
+  const v = $("repoin").value.trim(); S.draft = v;
+  const r = await post("/api/connect", {repo: v});
+  if (r.error) { S.ing = {...(S.ing || {}), state: "error", error: r.error}; S.paint.main = ""; return render(); }
+  S.events = []; S.after = 0; S.paint = {}; S.replay = null; S.sel = null; S.ing = {state: "working", lines: [], percent: 0, spec: v}; refresh();
+}
+$("dock").querySelectorAll("[data-d]").forEach(b => b.onclick = () => { S.dock = b.dataset.d; S.paint.log = ""; $("dock").querySelectorAll("[data-d]").forEach(x => x.classList.toggle("on", x === b)); renderLog(); });
+$("dockmin").onclick = () => { const mn = $("dock").classList.toggle("min"); $("dockmin").textContent = mn ? "Show" : "Hide"; };
+
+// ======================================================================= settings
+async function openSettings() {
+  const [a, st] = await Promise.all([get("/api/azure"), S.ov && S.ov.connected ? get("/api/settings") : Promise.resolve({})]);
+  const v = a.values, sec = a.secrets, f = (id, label, val, ph, type) => `<div class="fld"><label>${label}</label><input id="${id}" type="${type || "text"}" value="${esc(val || "")}" placeholder="${esc(ph || "")}"></div>`;
+  $("mbox").innerHTML = `<h2>Settings</h2><p class="hint">Azure OpenAI connection. Saved to the project's .env file (git ignores it). Secrets are never shown again.</p>
+    ${f("AZURE_OPENAI_BASE", "AZURE_OPENAI_BASE", v.AZURE_OPENAI_BASE, "https://your-resource.openai.azure.com")}
+    <div class="two">${f("AZURE_OPENAI_DEPLOYMENT", "AZURE_OPENAI_DEPLOYMENT", v.AZURE_OPENAI_DEPLOYMENT, "your chat deployment")}${f("AZURE_OPENAI_API_VERSION", "AZURE_OPENAI_API_VERSION", v.AZURE_OPENAI_API_VERSION, "2024-10-21")}</div>
+    ${f("AZURE_OPENAI_API_KEY", "AZURE_OPENAI_API_KEY", "", sec.AZURE_OPENAI_API_KEY ? "saved (leave empty to keep)" : "API key", "password")}
+    <p class="hint">Or leave the key empty and use a service principal:</p>
+    <div class="two">${f("AZURE_OPENAI_TENANTID", "AZURE_OPENAI_TENANTID", v.AZURE_OPENAI_TENANTID)}${f("AZURE_OPENAI_CLIENTID", "AZURE_OPENAI_CLIENTID", v.AZURE_OPENAI_CLIENTID)}</div>
+    ${f("AZURE_OPENAI_CLIENTSECRET", "AZURE_OPENAI_CLIENTSECRET", "", sec.AZURE_OPENAI_CLIENTSECRET ? "saved (leave empty to keep)" : "client secret", "password")}
+    <div class="row" style="margin-top:6px"><button class="btn primary" id="azsave">Save and test</button><span class="sp"></span><button class="btn" id="mclose">Close</button></div>
+    <div id="aznote" class="hint" style="margin-top:10px"></div>
+    ${S.ov && S.ov.connected ? `<hr style="border:0;border-top:1px solid var(--line);margin:22px 0"><h2 style="font-size:16px">This repository</h2>
+    ${f("m_test", "Test command", st.test_command)}
+    <div class="fld"><label>Run Pi</label><select id="m_sandbox"><option value="none" ${st.sandbox === "none" ? "selected" : ""}>On this computer, fenced by the scope guard</option><option value="podman" ${st.sandbox === "podman" ? "selected" : ""}>Inside a Podman container</option></select></div>
+    <details><summary class="hint" style="cursor:pointer">Use different Azure deployments per role (optional)</summary>${f("m_elephant", "Elephant (planner)", st.elephant, "empty = AZURE_OPENAI_DEPLOYMENT")}${f("m_goldfish", "Goldfish (reviewers)", st.goldfish, "empty = AZURE_OPENAI_DEPLOYMENT")}${f("m_correctness", "Goldfish: correctness reviewer", st.correctness, "empty = same as reviewers")}</details>
+    <div class="row" style="margin-top:12px"><button class="btn" id="msave">Save repository settings</button><button class="btn" id="check">Check setup</button></div><div id="checks" style="margin-top:12px"></div>` : ""}`;
+  $("modal").classList.add("on");
+  $("azsave").onclick = async () => {
+    const body = {}; for (const k of ["AZURE_OPENAI_BASE", "AZURE_OPENAI_DEPLOYMENT", "AZURE_OPENAI_API_VERSION", "AZURE_OPENAI_API_KEY", "AZURE_OPENAI_TENANTID", "AZURE_OPENAI_CLIENTID", "AZURE_OPENAI_CLIENTSECRET"]) body[k] = $(k).value;
+    const r = await post("/api/azure", body); if (r.error) { $("aznote").innerHTML = `<span class="badc">${esc(r.error)}</span>`; return; }
+    $("aznote").textContent = "Saved. Testing the connection..."; const c = await post("/api/azure/check");
+    $("aznote").innerHTML = c.ok ? `<span class="okc">${esc(c.note)}</span>` : `<span class="badc">${esc(c.note)}</span>`; S.azAt = 0; azure();
+  };
+  if ($("msave")) {
+    $("msave").onclick = async () => { const r = await post("/api/settings", {test_command: $("m_test").value, sandbox: $("m_sandbox").value, elephant: $("m_elephant").value, goldfish: $("m_goldfish").value, correctness: $("m_correctness").value}); $("checks").innerHTML = r.error ? `<span class="badc">${esc(r.error)}</span>` : '<span class="okc">Saved.</span>'; };
+    $("check").onclick = async () => { const r = await get("/api/doctor"); $("checks").innerHTML = r.checks.map(c => `<div class="${c.ok ? "okc" : "badc"}">${c.ok ? "&#10003;" : "&#10007;"} ${esc(c.text)}${c.ok ? "" : ` <span class="hint">${esc(c.fix)}</span>`}</div>`).join(""); };
+  }
+  $("mclose").onclick = () => $("modal").classList.remove("on");
+}
+$("settingsbtn").onclick = openSettings; $("azstat").onclick = openSettings;
+$("modal").onclick = e => { if (e.target === $("modal")) $("modal").classList.remove("on"); };
+
+setInterval(() => { if (!S.replay) tick(); }, 1000);
+setInterval(refresh, 1000);
+refresh();
 </script>
 </body>
 </html>

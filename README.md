@@ -1,97 +1,76 @@
-# ECP-Governed Evolution
+# Evolve
 
-**Change software safely, with AI, under rules a human can read.**
+Paste a repository link. Evolve finds what is worth fixing, plans the change, has independent reviewers challenge the
+plan, builds it inside enforced limits, proves it with tests, and keeps or undoes it. Everything is recorded in plain files.
 
-You ask for a change (fix a bug, add a feature, improve something). Instead of an AI
-editing your code directly, the change goes through a governed process:
+![Connect a repository](docs/images/01-connect.png)
 
 ```
- 1 PLAN        2 REVIEW        3 BUILD       4 VERIFY        5 DECIDE
- Elephant  ->  Goldfish   ->   Pi agent ->   Tests + Goldfish -> keep or roll back
- writes the    independent      edits only    check the         (human approves
- ECP           reviewers        declared      result            if high risk)
-               challenge it     files
+repo link
+   |
+0 DISCOVER      1 PLAN        2 REVIEW       3 BUILD        4 VERIFY             5 DECIDE
+plain tools  -> Elephant  ->  Goldfish   ->  Pi agent  ->  tests + Goldfish ->  keep or roll back
+find evidence   writes the    zero-context   edits only     fail-before proof    (a human approves
+Elephant ranks  ECP           reviewers      declared files                      high-risk work)
 ```
-
-Everything is held together by one document, the **ECP (Evolution Candidate Profile)**:
-the plan, the rules, the success criteria, and the record of what happened.
-
-## The three characters
 
 | Name | Job | Key rule |
 |---|---|---|
-| **Elephant** | Remembers the whole repo, the rules and past changes. Writes the ECP. | Never writes code. |
-| **Goldfish** | A team of reviewers. Each has *zero memory* of how the plan was made and checks one thing. | Sees only the ECP and the files it names. |
-| **Pi** | The coding agent. Builds exactly what the approved ECP says. | Cannot touch files outside the ECP's scope. |
+| Elephant | Reads the repository, its rules and past changes. Finds problems and writes the ECP. | Never writes code. |
+| Goldfish | Reviewers, each with no memory of how the plan was made, each checking one thing. | Sees only the ECP and the files it names. |
+| Pi | The coding agent. Builds exactly what the approved ECP says. | Cannot touch files outside the ECP's scope. Enforced, not requested. |
+| ECP | The document holding plan, rules, evidence and outcome. Locked on approval. | Every change leaves one. |
 
-Goldfish is the strength of the idea: a plan is only trusted after reviewers who were not
-part of making it have tried to break it.
+## Run it
 
-## Try it (no AI key needed)
+Needs Python 3.10+, git, Node 20+ (for Pi) and an Azure OpenAI deployment.
 
 ```bash
 pip install -e ".[dev]"
-evolve demo list          # shows the demo scenarios
-evolve demo all           # runs them all in the terminal
-evolve dashboard --demo   # the same, on a live web page you can click through
-pytest -q                 # runs the tests (80)
+npm i -g @earendil-works/pi-coding-agent
+cp .env.example .env        # then fill in the Azure values
+evolve start                # opens http://127.0.0.1:8765
 ```
 
-The demo uses *scripted* AI replies so it is repeatable and free. See `docs/DEMO_GUIDE.md`
-for what each scenario proves and how to talk through it.
+Then paste a repository link and press Connect. Full steps, accepted link forms and troubleshooting are in
+[docs/SETUP.md](docs/SETUP.md). What each part of the page shows is in [docs/DASHBOARD.md](docs/DASHBOARD.md).
 
-## Use it on your own repo
+## What it leaves in the repository
 
-```bash
-cd my-repo            # must be a git repo with tests
-evolve init           # creates .evolution/ and detects your test command
-evolve run "Bug: users can submit an empty name"
+```
+.evolution/
+  config.yaml              test command, sandbox, optional per-role deployments
+  rules.md                 rules every plan must follow
+  source.json              where the repository came from
+  findings/F-001.json      each discovered problem, with its evidence
+  ecps/ECP-0001.md         the plan (YAML header + Markdown), hash-locked on approval
+  versions/                every version of each plan
+  evidence/ECP-0001.jsonl  append-only, hash-chained record of what happened
+  events/ECP-0001.jsonl    the live feed, kept so a run can be replayed
+  history.jsonl            what past changes taught (the Elephant reads it next time)
 ```
 
-See `docs/USE_ON_ANY_REPO.md` (needs an AI key and, for real building, the Pi agent).
-
-## Run it live (Azure OpenAI GPT-5.5 + Pi in Podman)
-
-```bash
-evolve sandbox build
-evolve init --profile azure-podman       # inside the target repo
-evolve doctor --ping                     # must say Ready.
-evolve run "Bug: ..." --open-report      # also accepts --repo <path or git URL>
-```
-
-Full checklist: `docs/LIVE_SETUP.md`. Every run produces an HTML report for showing the process.
-
-## The dashboard (this is what you show)
-
-```bash
-evolve dashboard                 # on the real repo (after init); open http://127.0.0.1:8765
-evolve dashboard --demo          # practice mode: scripted scenarios, no key needed
-```
-
-One page shows the five steps lighting up, the plan, each Goldfish reviewer as a card, every file Pi touched
-(blocked ones in red), the tests, the code diff and the final decision. You can **replay** any run step by step,
-see the **plan change from version 1 to version 2**, approve high-risk plans with a button, and press
-**Compare: plain vs governed** to run the same request with an unrestricted agent next to the governed run.
-Everything on the page is also plain files in `.evolution/` that you can open.
-
-## Other commands
+## Commands
 
 | Command | What it does |
 |---|---|
-| `evolve compare "request"` | Same request, plain agent vs governed, side by side |
-| `evolve run --from-failing-tests` | Trigger: failing tests become the change request |
-| `evolve run --from-file issue.md` | Trigger: use an issue file as the request |
-| `evolve plan-diff ECP-0001` | Show how the plan changed between versions |
-| `evolve show ECP-0001` | The plan plus its evidence trail |
-| `evolve doctor [--ping]` | Is this machine ready? |
+| `evolve start` | The application (also just `evolve`) |
+| `evolve prepare --repo X` | Clone if needed, install dependencies privately, run the tests for a baseline |
+| `evolve discover --repo X` | Find and rank problems |
+| `evolve run "request" --repo X` or `--finding F-001` | Evolve from a request or a finding |
+| `evolve show ECP-0001`, `evolve plan-diff ECP-0001` | Inspect a run |
+| `evolve doctor [--ping]` | Is this computer ready? |
+| `evolve sandbox build` | Build the Podman image Pi can run in |
 
-## Read next
+`X` is a link or a folder.
 
-- `docs/DEMO_SCRIPT.md` : what to say and click, step by step
+## Limits
 
-- `docs/LIVE_SETUP.md` : the mentor-machine checklist
+- Findings and reviews are model opinions. Evidence comes from plain tools (tests, bandit, ruff, coverage), and every bug
+  fix must show its new test failing on the old code.
+- Discovery tools cover Python well. Other languages get the repository's own tests plus the Elephant's reading.
+- The repository needs tests, otherwise nothing can be verified.
+- A person picks which finding to evolve.
+- Without Podman, the target repository's tests and Pi run on this computer. Do not connect repositories you do not trust.
 
-- `docs/HOW_IT_WORKS.md` : every part explained simply
-- `docs/DEMO_GUIDE.md`   : how to present it
-- `docs/USE_ON_ANY_REPO.md` : setup for a real repo
-- `docs/TESTING.md`      : what is tested, and what is NOT yet tested
+More: [HOW_IT_WORKS](docs/HOW_IT_WORKS.md), [DISCOVERY](docs/DISCOVERY.md), [TESTING](docs/TESTING.md).

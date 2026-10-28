@@ -101,28 +101,37 @@ This is deliberate: the part that enforces safety should be boring and testable.
 | `evolve/scope.py` | Path rules (allowed / forbidden / protected) |
 | `evolve/elephant.py` | Planner |
 | `evolve/goldfish/` | Reviewers: `runner.py` + one prompt per lens in `lenses/` |
-| `evolve/pi_runner.py` | Runs Pi (real) or the scripted stand-in (demo) |
+| `evolve/pi_runner.py` | Runs Pi, locally or in Podman |
 | `guard/guard.ts` | The Pi extension that blocks out-of-scope edits |
 | `evolve/verify.py` | Tests and diff scope check |
 | `evolve/gate.py` | Risk decision |
 | `evolve/decide.py` | Merge, roll back, remember |
 | `evolve/engine.py` | Runs everything in order |
-| `evolve/llm.py` | AI connections (Anthropic, OpenAI-compatible, Mock) |
+| `evolve/llm.py`, `evolve/azure.py` | Azure OpenAI connection (key or service principal) |
+| `evolve/repo.py` | Link parsing, cloning, repository summary |
 | `evolve/cli.py` | The `evolve` command |
 
 
-## Added for the live demo
+## Other parts
 
 | Part | File | What it does |
 |---|---|---|
-| Azure connection | `evolve/llm.py` | Calls your GPT deployment; retries rate limits; readable errors |
-| Pi in Podman | `evolve/pi_runner.py`, `sandbox/Dockerfile.pi` | Pi runs in a container that sees only the repo |
+| Azure connection | `evolve/llm.py`, `evolve/azure.py` | Calls your deployment; retries rate limits; readable errors |
+| Repository intake | `evolve/repo.py`, `evolve/prepare.py` | Link to local clone, private environment, baseline tests |
+| Pi in Podman | `evolve/pi_runner.py`, `sandbox/Dockerfile.pi` | Pi runs in a container that sees only the repository |
 | Plan versions | `evolve/ecp.py` | Every revision of the plan is kept in `.evolution/versions/` |
-| Dashboard | `evolve/dashboard/` | Live view and replay built from the evidence log; approve button; compare |
-| Comparison | `evolve/compare.py` | Same request with a plain agent and with governance |
-| Triggers | `evolve/cli.py` | Failing tests or an issue file can open an ECP |
-| Doctor | `evolve/cli.py` | Checks this machine before a demo |
+| Live feed | `evolve/live.py` | One event stream behind the dashboard and replay |
+| Dashboard | `evolve/dashboard/` | Live view, replay, approve button, settings |
+| Discovery | `evolve/discover.py` | Findings with evidence, see DISCOVERY.md |
 | "Insufficient context" | `goldfish/lenses/_common.md` | A reviewer that lacks information says so instead of guessing |
 
 Honest limits: Goldfish reviewers are AI opinions. With one model family their blind spots overlap with the builder's.
 The hard guarantees come from the lock, the guard, the scope check, the tests, the fail-before proof and rollback.
+
+## Goldfish at a glance
+
+![Goldfish architecture](images/goldfish-architecture.png)
+
+![Goldfish review flow](images/goldfish-review-flow.png)
+
+![Goldfish agents](images/goldfish-agents.png)

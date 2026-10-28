@@ -1,12 +1,12 @@
-"""Command line:  evolve init | run | compare | dashboard | doctor | sandbox | review | show | plan-diff | report | status | demo"""
+"""Command line:  evolve [start] | run | discover | prepare | doctor | init | sandbox | review | show | plan-diff | status"""
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 import yaml
@@ -16,7 +16,7 @@ from .config import init_repo, load_config, git
 from .ecp import ECP, Evidence
 from .llm import make_llm
 
-DEMO_DIR = Path(__file__).resolve().parent.parent / "demo"
+PROJECT = Path(__file__).resolve().parent.parent
 
 
 def _ask_factory(yes: bool, mode: str = "terminal", repo: Path | None = None):
@@ -47,7 +47,7 @@ def _ask_factory(yes: bool, mode: str = "terminal", repo: Path | None = None):
 
 
 def cmd_init(a):
-    r = init_repo(Path(a.repo), a.profile or "")
+    r = init_repo(Path(a.repo))
     print("Initialised .evolution/ ->", ", ".join(r["created"]) or "already set up")
     print("Detected test command:", r["test_command"] or "(none; set test_command in .evolution/config.yaml)")
 
@@ -56,17 +56,13 @@ def _load_scenario(path):
     return json.loads(Path(path).read_text(encoding="utf-8")) if path else None
 
 
-def resolve_repo(spec: str, workdir: str = "workspaces") -> Path:
-    """A local folder, or a git URL (cloned into ./workspaces/<name>)."""
-    if spec.startswith(("http://", "https://", "git@")):
-        name = spec.rstrip("/").split("/")[-1].removesuffix(".git")
-        dest = Path(workdir) / name
-        if not dest.exists():
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            subprocess.run(["git", "clone", "-q", spec, str(dest)], check=True)
-            print(f"Cloned {spec} -> {dest}")
-        return dest.resolve()
-    return Path(spec).resolve()
+def resolve_repo(spec: str, workdir: str = str(PROJECT / "workspaces")) -> Path:
+    """A local git folder, or a repository link (cloned into ./workspaces/<name>). See evolve/repo.py for the accepted forms."""
+    from .repo import RepoError, ingest
+    try:
+        return ingest(spec, Path(workdir), print)[0].resolve()
+    except RepoError as e:
+        sys.exit(str(e))
 
 
 def failing_tests_request(repo: Path, cfg) -> str:
@@ -84,24 +80,25 @@ def cmd_run(a):
     repo = resolve_repo(a.repo)
     if not (repo / ".evolution" / "config.yaml").exists():
         print("First time on this repo: setting up .evolution/ ...")
-        init_repo(repo, a.profile or "")
+        init_repo(repo)
     cfg = load_config(repo)
     scenario = _load_scenario(a.scenario)
     llm = make_llm(cfg, scenario)
     actions = scenario.get("pi_actions") if scenario else None
     request = a.request or (scenario or {}).get("request", "")
+    finding = None
+    if getattr(a, "finding", None):
+        from .discover import load_finding, request_from_finding
+        finding = load_finding(repo, a.finding)
+        request = request_from_finding(finding)
     if getattr(a, "from_file", None):
         request = (request + "\n\n" if request else "") + Path(a.from_file).read_text(encoding="utf-8")
     if getattr(a, "from_failing_tests", False):
         request = (request + "\n\n" if request else "") + failing_tests_request(repo, cfg)
     if not request:
         sys.exit("Give a change request, e.g.  evolve run \"Stock can go negative\"  (or --from-file issue.md, or --from-failing-tests)")
-    res = engine.run(repo, request, llm, cfg, actions, _ask_factory(a.yes, getattr(a, "ask", "terminal"), repo), print)
+    res = engine.run(repo, request, llm, cfg, actions, _ask_factory(a.yes, getattr(a, "ask", "terminal"), repo), print, finding)
     print(f"\nOutcome: {res.outcome.upper()}  ({res.ecp.id})")
-    if a.open_report:
-        import webbrowser
-        from .report import write_report
-        webbrowser.open(write_report(repo, res.ecp.id).as_uri())
     for r in res.reasons:
         print("  -", r)
 
@@ -128,23 +125,6 @@ def cmd_show(a):
         print(e["time"], e["kind"], json.dumps(e["data"], ensure_ascii=False)[:160])
 
 
-def cmd_compare(a):
-    """Run the same request without and with governance and print the difference."""
-    from . import compare as cmp
-    repo = resolve_repo(a.repo)
-    if not (repo / ".evolution" / "config.yaml").exists():
-        init_repo(repo, a.profile or "")
-    cfg = load_config(repo)
-    scenario = _load_scenario(a.scenario)
-    llm = make_llm(cfg, scenario)
-    request = a.request or (scenario or {}).get("request", "")
-    if not request:
-        sys.exit("Give a change request to compare.")
-    pa = (scenario or {}).get("pi_actions")
-    out = cmp.compare(repo, request, llm, cfg, (scenario or {}).get("plain_actions", pa), pa, _ask_factory(a.yes, getattr(a, "ask", "terminal"), repo), print)
-    print("\n" + cmp.format_comparison(out))
-
-
 def cmd_plan_diff(a):
     import difflib
     from .ecp import list_versions
@@ -156,14 +136,6 @@ def cmd_plan_diff(a):
     for (n1, t1), (n2, t2) in zip(vs, vs[1:]):
         print(f"===== plan v{n1} -> v{n2} =====")
         print("".join(difflib.unified_diff(t1.splitlines(True), t2.splitlines(True), f"v{n1}", f"v{n2}", n=1)))
-
-
-def cmd_report(a):
-    from .report import write_report
-    repo = Path(a.repo).resolve()
-    ids = [a.id] if a.id else sorted(p.stem for p in (repo / ".evolution" / "ecps").glob("ECP-*.md"))
-    for i in ids:
-        print(write_report(repo, i))
 
 
 def _have(cmd):
@@ -179,7 +151,7 @@ def doctor_checks(repo: Path, ping: bool = False, run_tests: bool = True) -> lis
     add(sys.version_info >= (3, 10), f"python {sys.version_info.major}.{sys.version_info.minor} (need 3.10+)", "install Python 3.10 or newer")
     cfgp = repo / ".evolution" / "config.yaml"
     if not cfgp.exists():
-        add(False, "repo not set up", "run: evolve init --profile azure-podman")
+        add(False, "repo not set up", "run: evolve init")
         return rows
     cfg = load_config(repo)
     add(True, f"repo set up: provider={cfg.models.provider}, pi={cfg.pi.backend}, sandbox={cfg.pi.sandbox}")
@@ -195,12 +167,12 @@ def doctor_checks(repo: Path, ping: bool = False, run_tests: bool = True) -> lis
         ok, out = run_cmd(repo, cfg.test_command)
         add(ok, "tests pass BEFORE any change (baseline)", "fix the failing tests first: " + out.strip().splitlines()[-1][:120] if out.strip() else "fix the failing tests first")
     if cfg.models.provider == "azure":
-        add(bool(os.environ.get(cfg.models.api_key_env or "AZURE_OPENAI_API_KEY")), "AZURE_OPENAI_API_KEY is set", "export AZURE_OPENAI_API_KEY=...")
-        add(bool(os.environ.get(cfg.models.azure_endpoint_env) or os.environ.get("AZURE_OPENAI_BASE_URL") or os.environ.get("AZURE_OPENAI_RESOURCE_NAME")),
-            f"{cfg.models.azure_endpoint_env} is set", "export AZURE_OPENAI_ENDPOINT=https://<resource>.openai.azure.com")
-        add(bool(cfg.models.elephant), f"deployment name for planning/review: {cfg.models.elephant}", "set models.elephant to your Azure deployment name")
-        second = cfg.models.correctness and cfg.models.correctness != cfg.models.goldfish
-        add(True, "second model for the correctness reviewer: " + (cfg.models.correctness if second else "none (same deployment as the other reviewers: a weaker independence check)"))
+        from . import azure
+        az = azure.settings()
+        add(bool(az.base), "AZURE_OPENAI_BASE is set" + (f" ({az.base})" if az.base else ""), "put AZURE_OPENAI_BASE=https://<resource>.openai.azure.com in .env")
+        add(bool(az.deployment), "AZURE_OPENAI_DEPLOYMENT is set" + (f" ({az.deployment})" if az.deployment else ""), "put AZURE_OPENAI_DEPLOYMENT=<your chat deployment> in .env")
+        add(az.auth_mode != "none", f"Azure credentials: {az.auth_mode}", "set AZURE_OPENAI_API_KEY, or AZURE_OPENAI_TENANTID, AZURE_OPENAI_CLIENTID and AZURE_OPENAI_CLIENTSECRET")
+        add(True, f"API version: {az.version}")
     if cfg.pi.backend == "pi":
         if cfg.pi.sandbox == "podman":
             have = _have("podman")
@@ -218,7 +190,7 @@ def doctor_checks(repo: Path, ping: bool = False, run_tests: bool = True) -> lis
     if ping and cfg.models.provider != "mock":
         try:
             out = make_llm(cfg).complete("doctor", "Reply with the single word: pong", "ping", cfg.models.elephant)
-            add("pong" in out.lower(), f"model answered: {out.strip()[:40]!r}", "check the deployment name and endpoint")
+            add("pong" in out.lower(), f"model answered: {out.strip()[:40]!r}", "check AZURE_OPENAI_DEPLOYMENT and AZURE_OPENAI_BASE")
         except Exception as e:  # noqa: BLE001
             add(False, "model call failed", str(e)[:200])
     return rows
@@ -233,19 +205,6 @@ def cmd_doctor(a):
         bad += not ok
     print("\nReady." if not bad else f"\n{bad} thing(s) to fix.")
     sys.exit(1 if bad else 0)
-
-
-def cmd_dashboard(a):
-    """Open the live dashboard for a repo (or --demo for a practice repo with scripted scenarios)."""
-    from .dashboard.server import make_demo_repo, serve
-    if a.demo:
-        dest = Path(a.dest) if a.dest else Path(tempfile.mkdtemp(prefix="evolve-dashboard-demo-")) / "inventory"
-        repo = make_demo_repo(dest)
-        print(f"Practice repo: {repo}  (use the 'Reset demo repo' button to start over)")
-        serve(repo, a.host, a.port, demo=True, demo_dir=dest, open_browser=not a.no_open)
-    else:
-        repo = resolve_repo(a.repo)
-        serve(repo, a.host, a.port, demo=False, open_browser=not a.no_open)
 
 
 def cmd_sandbox(a):
@@ -266,47 +225,79 @@ def cmd_status(a):
         print(f"{d['id']}  {d['outcome']:<11} {d['change_type']:<11} {d['title']}")
 
 
-def cmd_demo(a):
-    scen_dir = DEMO_DIR / "scenarios"
-    names = sorted(p.stem for p in scen_dir.glob("*.json"))
-    if a.name == "list":
-        print("\n".join(names)); return
-    chosen = names if a.name == "all" else [a.name]
-    dest = Path(a.dest) if a.dest else Path(tempfile.mkdtemp(prefix="evolve-demo-"))
-    for n in chosen:
-        repo = dest / n if len(chosen) > 1 or a.dest else dest
-        if repo.exists():
-            shutil.rmtree(repo)
-        shutil.copytree(DEMO_DIR / "inventory_app", repo, ignore=shutil.ignore_patterns("__pycache__", ".pytest_cache"))
-        for cmd in (["init", "-q", "-b", "main"], ["add", "-A"]):
-            git(repo, *cmd)
-        git(repo, "-c", "user.name=Demo", "-c", "user.email=demo@localhost", "commit", "-q", "-m", "initial inventory app")
+def cmd_prepare(a):
+    from .prepare import prepare_environment
+    repo = resolve_repo(a.repo)
+    if not (repo / ".evolution" / "config.yaml").exists():
         init_repo(repo)
-        cfg_p = repo / ".evolution" / "config.yaml"
-        c = yaml.safe_load(cfg_p.read_text()); c["test_command"] = f"{sys.executable} -m pytest -q"; cfg_p.write_text(yaml.safe_dump(c, sort_keys=False))
-        print(f"\n===== DEMO: {n}  (repo: {repo}) =====")
-        class A: pass
-        b = A(); b.repo, b.scenario, b.request, b.yes, b.profile, b.open_report = str(repo), str(scen_dir / f"{n}.json"), None, True, "", False
-        cmd_run(b)
-    print("\nDemo repos are in:", dest)
+    prepare_environment(repo, print)
+
+
+def cmd_start(a):
+    """The application: open the dashboard, connect a repo in the page, discover, evolve."""
+    from .dashboard.server import serve
+    load_env_files(".")
+    repo = resolve_repo(a.repo) if a.repo else None
+    serve(repo, a.host, a.port, open_browser=not a.no_open)
+
+
+def cmd_discover(a):
+    repo = resolve_repo(a.repo)
+    if not (repo / ".evolution" / "config.yaml").exists():
+        print("First time on this repo: setting up .evolution/ ...")
+        init_repo(repo)
+    cfg = load_config(repo)
+    scenario = _load_scenario(a.scenario)
+    from .discover import discover, format_findings
+    summary = discover(repo, make_llm(cfg, scenario), cfg, print)
+    print("\n" + format_findings(summary))
+    if summary["dropped"]:
+        print(f"\n{len(summary['dropped'])} proposed finding(s) were dropped by the checks (see .evolution/discovery.jsonl).")
+    if summary["findings"]:
+        print(f"\nEvolve one with:  evolve run --repo {a.repo} --finding {summary['findings'][0]['id']}")
+
+
+def load_env_files(repo: str = ".") -> list[str]:
+    """Read KEY=value lines from a .env file (never overrides variables already set). Looks in the current folder,
+    the evolve project folder and the target repo. Returns the files used. Secrets stay in the file, never in config."""
+    used = []
+    for d in (Path.cwd(), Path(__file__).resolve().parent.parent, Path(repo)):
+        f = d / ".env"
+        if f.is_file() and str(f) not in used:
+            raw = f.read_bytes()
+            text = raw.decode("utf-16") if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else raw.decode("utf-8-sig", errors="replace")  # PowerShell's `>` writes UTF-16
+            for line in text.splitlines():
+                line = line.strip()
+                if line.startswith("export "):
+                    line = line[7:]
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    v = v.strip().strip("\"'").strip()
+                    if k.strip() and v:
+                        os.environ.setdefault(k.strip(), v)
+            used.append(str(f))
+    return used
 
 
 def main(argv=None):
-    p = argparse.ArgumentParser(prog="evolve", description="ECP-governed evolution")
-    sub = p.add_subparsers(dest="cmd", required=True)
-    s = sub.add_parser("init"); s.add_argument("--repo", default="."); s.add_argument("--profile", choices=["azure-podman"], help="preset: Azure OpenAI + Pi in Podman"); s.set_defaults(f=cmd_init)
-    s = sub.add_parser("run"); s.add_argument("request", nargs="?"); s.add_argument("--repo", default=".", help="folder or git URL"); s.add_argument("--scenario"); s.add_argument("--profile", choices=["azure-podman"]); s.add_argument("--yes", action="store_true", help="auto-approve high-risk gates"); s.add_argument("--open-report", action="store_true", help="open the HTML report when done"); s.add_argument("--from-file", help="use the text of a file (e.g. an issue) as the request"); s.add_argument("--from-failing-tests", action="store_true", help="trigger: use the failing test output as the request"); s.add_argument("--ask", choices=["terminal", "file"], default="terminal", help="where high-risk approvals are asked (file = via the dashboard)"); s.set_defaults(f=cmd_run)
-    s = sub.add_parser("compare"); s.add_argument("request", nargs="?"); s.add_argument("--repo", default="."); s.add_argument("--scenario"); s.add_argument("--profile", choices=["azure-podman"]); s.add_argument("--yes", action="store_true"); s.add_argument("--ask", choices=["terminal", "file"], default="terminal"); s.set_defaults(f=cmd_compare)
+    p = argparse.ArgumentParser(prog="evolve", description="Spec-governed controlled evolution of software")
+    sub = p.add_subparsers(dest="cmd")
+    s = sub.add_parser("start", help="open the application (the default)"); s.add_argument("--repo", default=""); s.add_argument("--port", type=int, default=8765); s.add_argument("--host", default="127.0.0.1"); s.add_argument("--no-open", action="store_true"); s.set_defaults(f=cmd_start)
+    s = sub.add_parser("init"); s.add_argument("--repo", default="."); s.set_defaults(f=cmd_init)
+    s = sub.add_parser("prepare", help="clone if needed, install the repo's dependencies in a private environment, get a test baseline"); s.add_argument("--repo", default="."); s.set_defaults(f=cmd_prepare)
+    s = sub.add_parser("discover", help="find evidence-backed problems in a repo"); s.add_argument("--repo", default="."); s.add_argument("--scenario", help=argparse.SUPPRESS); s.set_defaults(f=cmd_discover)
+    s = sub.add_parser("run", help="evolve a repo: plan, review, build, verify, decide"); s.add_argument("request", nargs="?"); s.add_argument("--repo", default=".", help="folder or git URL"); s.add_argument("--scenario", help=argparse.SUPPRESS); s.add_argument("--yes", action="store_true", help="auto-approve high-risk gates"); s.add_argument("--from-file", help="use the text of a file (e.g. an issue) as the request"); s.add_argument("--from-failing-tests", action="store_true", help="use the failing test output as the request"); s.add_argument("--finding", help="evolve a finding made by `evolve discover`, e.g. F-001"); s.add_argument("--ask", choices=["terminal", "file"], default="terminal", help="where high-risk approvals are asked (file = via the dashboard)"); s.set_defaults(f=cmd_run)
+    s = sub.add_parser("doctor", help="is this computer ready?"); s.add_argument("--repo", default="."); s.add_argument("--ping", action="store_true", help="also make one real model call"); s.add_argument("--skip-tests", action="store_true", help="do not run the baseline tests"); s.set_defaults(f=cmd_doctor)
     s = sub.add_parser("plan-diff"); s.add_argument("id"); s.add_argument("--repo", default="."); s.set_defaults(f=cmd_plan_diff)
-    s = sub.add_parser("report"); s.add_argument("id", nargs="?"); s.add_argument("--repo", default="."); s.set_defaults(f=cmd_report)
-    s = sub.add_parser("doctor"); s.add_argument("--repo", default="."); s.add_argument("--ping", action="store_true", help="also make one real model call"); s.add_argument("--skip-tests", action="store_true", help="do not run the baseline tests"); s.set_defaults(f=cmd_doctor)
-    s = sub.add_parser("dashboard"); s.add_argument("--repo", default="."); s.add_argument("--port", type=int, default=8765); s.add_argument("--host", default="127.0.0.1"); s.add_argument("--demo", action="store_true", help="practice mode: a demo repo with scripted scenarios, no AI key needed"); s.add_argument("--dest", help="where to create the practice repo"); s.add_argument("--no-open", action="store_true"); s.set_defaults(f=cmd_dashboard)
     s = sub.add_parser("sandbox"); s.add_argument("action", choices=["build"]); s.add_argument("--image", default="evolve-pi:latest"); s.set_defaults(f=cmd_sandbox)
-    s = sub.add_parser("review"); s.add_argument("ecp"); s.add_argument("--repo", default="."); s.add_argument("--phase", default="before", choices=["before", "after"]); s.add_argument("--scenario"); s.set_defaults(f=cmd_review)
+    s = sub.add_parser("review"); s.add_argument("ecp"); s.add_argument("--repo", default="."); s.add_argument("--phase", default="before", choices=["before", "after"]); s.add_argument("--scenario", help=argparse.SUPPRESS); s.set_defaults(f=cmd_review)
     s = sub.add_parser("show"); s.add_argument("id"); s.add_argument("--repo", default="."); s.set_defaults(f=cmd_show)
     s = sub.add_parser("status"); s.add_argument("--repo", default="."); s.set_defaults(f=cmd_status)
-    s = sub.add_parser("demo"); s.add_argument("name", nargs="?", default="list", help="list | all | <scenario name>"); s.add_argument("--dest"); s.set_defaults(f=cmd_demo)
     a = p.parse_args(argv)
+    if not a.cmd:
+        a = p.parse_args(["start", *(argv if argv is not None else sys.argv[1:])])
+    r = getattr(a, "repo", None) or "."
+    load_env_files("." if str(r).startswith(("http", "git@")) or not Path(r).exists() else r)
     a.f(a)
 
 
