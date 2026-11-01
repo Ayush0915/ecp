@@ -140,6 +140,39 @@ MISSING = re.compile(r"No module named ['\"]?([A-Za-z0-9_\.\-]+)")
 PIP_NAMES = {"yaml": "pyyaml", "PIL": "pillow", "cv2": "opencv-python", "sklearn": "scikit-learn", "bs4": "beautifulsoup4", "dateutil": "python-dateutil", "dotenv": "python-dotenv"}
 
 
+def canon(name: str) -> str:
+    """Package names compare case-insensitively with -, _ and . treated alike (PEP 503)."""
+    return re.sub(r"[-_.]+", "-", name).strip().lower()
+
+
+REQ_NAME = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
+
+
+def declared_packages(repo: Path) -> set[str]:
+    """Every package the repository itself names as a dependency (requirements*.txt, pyproject.toml, setup.cfg, setup.py)."""
+    repo = Path(repo)
+    names: set[str] = set()
+    for f in sorted(repo.glob("*requirements*.txt")) + sorted(repo.glob("requirements/*.txt")):
+        for line in requirement_lines(f):
+            m = REQ_NAME.match(line)
+            if m:
+                names.add(canon(m.group(1)))
+    for f in (repo / "pyproject.toml", repo / "setup.cfg", repo / "setup.py"):
+        if not f.is_file():
+            continue
+        text = f.read_text(encoding="utf-8", errors="ignore")
+        # dependency lists: dependencies = [...], optional groups, install_requires/tests_require (= [...] or indented lines)
+        for block in re.findall(r"(?:dependencies|requires|install_requires|tests_require|extras_require|\w+)\s*=\s*\[(.*?)\]", text, re.S):
+            for item in re.findall(r"['\"]\s*([A-Za-z0-9][A-Za-z0-9._-]*)", block):
+                names.add(canon(item))
+        for block in re.findall(r"(?:install_requires|tests_require)\s*=\s*\n((?:[ \t]+\S.*\n?)+)", text):
+            for line in block.splitlines():
+                m = REQ_NAME.match(line)
+                if m:
+                    names.add(canon(m.group(1)))
+    return names
+
+
 def failure_detail(text: str, limit: int = 900) -> str:
     """The lines that explain a failing test run (not just its last line, which is only a count)."""
     lines = [l.rstrip() for l in text.splitlines() if l.strip()]
@@ -153,12 +186,24 @@ def _finish(repo: Path, cfg: Config, out: dict, log: Callable[[str], None]) -> d
         emit(repo, "prep_step", name="baseline", state="running", note=cfg.test_command)
         ok, text = run_cmd(repo, cfg.test_command, 600)
         py = cfg.python
-        for _ in range(6):  # a missing package named in the error is installed, then the tests run again
+        declared = declared_packages(repo)
+        tried: set[str] = set()
+        for _ in range(6):  # a missing package the REPO DECLARES is installed, then the tests run again
             m = MISSING.search(text) if not ok else None
             if not (m and py):
                 break
-            pkg = PIP_NAMES.get(m.group(1).split(".")[0], m.group(1).split(".")[0])
-            log(f"  the tests need '{pkg}'; installing it")
+            mod = m.group(1).split(".")[0]
+            pkg = PIP_NAMES.get(mod, mod)
+            if canon(pkg) not in declared and canon(mod) not in declared:
+                # the name comes from the output of untrusted code: installing it blindly would let a repository pick what we install
+                log(f"  the tests need '{mod}', but the repository does not declare it as a dependency; not installing it. "
+                    "Add it to the repository's requirements (or install it yourself) if it is genuine.")
+                out.setdefault("not_installed", []).append(mod)
+                break
+            if pkg in tried:
+                break
+            tried.add(pkg)
+            log(f"  the tests need '{pkg}' (declared by the repository); installing it")
             if not _run([py, "-m", "pip", "install", "-q", pkg], repo, 600, log):
                 break
             ok, text = run_cmd(repo, cfg.test_command, 600)

@@ -1,5 +1,7 @@
 import json
+import os
 import shutil
+import tempfile
 import subprocess
 import sys
 from pathlib import Path
@@ -7,7 +9,10 @@ from pathlib import Path
 import pytest
 import yaml
 
-from evolve.config import init_repo
+# Every test run gets its own governance store, never the real ~/.evolve (child processes inherit it too).
+os.environ["EVOLVE_HOME"] = tempfile.mkdtemp(prefix="evolve-home-")
+
+from evolve.config import config_path, init_repo  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 DEMO = ROOT / "tests" / "fixtures"
@@ -22,7 +27,7 @@ def make_repo(dest, source="inventory_app", mock=True):
     g = lambda *a: subprocess.run(["git", "-C", str(repo), "-c", "user.name=T", "-c", "user.email=t@t", *a], check=True, capture_output=True)
     g("init", "-q", "-b", "main"); g("add", "-A"); g("commit", "-q", "-m", "init")
     init_repo(repo)
-    p = repo / ".evolution" / "config.yaml"
+    p = config_path(repo)
     c = yaml.safe_load(p.read_text()); c["test_command"] = f"{sys.executable} -m pytest -q"
     if mock:
         c["models"]["provider"] = "mock"; c["pi"]["backend"] = "scripted"

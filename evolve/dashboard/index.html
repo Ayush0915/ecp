@@ -214,7 +214,8 @@ details.p summary{cursor:pointer;font-weight:600}details.p pre{margin:8px 0 0;wh
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const get = u => fetch(u).then(r => r.json());
-const post = (u, b) => fetch(u, {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify(b || {})}).then(r => r.json());
+const EVOLVE_TOKEN = "__EVOLVE_TOKEN__";  // filled in by the server; other websites cannot read it
+const post = (u, b) => fetch(u, {method: "POST", headers: {"content-type": "application/json", "x-evolve-token": EVOLVE_TOKEN}, body: JSON.stringify(b || {})}).then(r => r.json());
 const S = {ov: null, live: null, ing: null, events: [], after: 0, tab: "live", sel: null, replay: null, rpos: 0, dock: "act", detail: null,
            seenAnim: new Set(), paint: {}, follow: true, replayFast: false, azOk: null, azAt: 0, openEcp: false, switching: false};
 
@@ -479,7 +480,9 @@ function bind() {
   document.querySelectorAll("[data-id]").forEach(r => r.onclick = () => openRun(r.dataset.id));
   if ($("drec")) $("drec").ontoggle = e => { if (S.openRec !== e.target.open) { S.openRec = e.target.open; S.paint.main = ""; render(); } };
   if ($("dfiles")) $("dfiles").ontoggle = e => { if (S.openFiles !== e.target.open) { S.openFiles = e.target.open; S.paint.main = ""; render(); } };
-  if ($("yes")) { $("yes").onclick = () => post("/api/approve", {approve: true}).then(refresh); $("no").onclick = () => post("/api/approve", {approve: false}).then(refresh); }
+  const pend = () => (S.live && S.live.pending_approval) || {};
+  const decideBtn = ok => post("/api/approve", {approve: ok, plan_hash: pend().plan_hash || ""}).then(r => { if (r.error) alert(r.error); refresh(); });
+  if ($("yes")) { $("yes").onclick = () => decideBtn(true); $("no").onclick = () => decideBtn(false); }
   if ($("reprep")) $("reprep").onclick = async () => { const r = await post("/api/prepare"); if (r.error) alert(r.error); S.events = []; S.after = 0; refresh(); };
   if ($("play")) $("play").onclick = play;
   if ($("slider")) $("slider").oninput = e => { stopPlay(); S.rpos = +e.target.value; S.replay.t = S.rpos ? S.events[S.rpos - 1].t : 0; S.replayFast = true; S.paint.main = ""; render(); };
@@ -594,6 +597,8 @@ async function openSettings() {
     <div id="aznote" class="hint" style="margin-top:10px"></div>
     ${S.ov && S.ov.connected ? `<hr style="border:0;border-top:1px solid var(--line);margin:22px 0"><h2 style="font-size:16px">This repository</h2>
     ${f("m_test", "Test command", st.test_command)}
+    <div class="fld"><label>Autonomy (governance)</label><select id="m_level">${[["0", "0 &middot; discover only"], ["1", "1 &middot; a human approves every plan and result"], ["2", "2 &middot; low risk runs on its own, high risk asks"], ["3", "3 &middot; as 2, may pick its own findings"]].map(([v, t]) => `<option value="${v}" ${String(st.autonomy_level) === v ? "selected" : ""}>${t}</option>`).join("")}</select></div>
+    <p class="hint">Settings, rules and governance are kept outside the repository, in ${esc(st.store || "")}</p>
     <div class="fld"><label>Run Pi</label><select id="m_sandbox"><option value="none" ${st.sandbox === "none" ? "selected" : ""}>On this computer, fenced by the scope guard</option><option value="podman" ${st.sandbox === "podman" ? "selected" : ""}>Inside a Podman container</option></select></div>
     <details><summary class="hint" style="cursor:pointer">Use different Azure deployments per role (optional)</summary>${f("m_elephant", "Elephant (planner)", st.elephant, "empty = AZURE_OPENAI_DEPLOYMENT")}${f("m_goldfish", "Goldfish (reviewers)", st.goldfish, "empty = AZURE_OPENAI_DEPLOYMENT")}${f("m_correctness", "Goldfish: correctness reviewer", st.correctness, "empty = same as reviewers")}</details>
     <div class="row" style="margin-top:12px"><button class="btn" id="msave">Save repository settings</button><button class="btn" id="check">Check setup</button></div><div id="checks" style="margin-top:12px"></div>` : ""}`;
@@ -605,7 +610,7 @@ async function openSettings() {
     $("aznote").innerHTML = c.ok ? `<span class="okc">${esc(c.note)}</span>` : `<span class="badc">${esc(c.note)}</span>`; S.azAt = 0; azure();
   };
   if ($("msave")) {
-    $("msave").onclick = async () => { const r = await post("/api/settings", {test_command: $("m_test").value, sandbox: $("m_sandbox").value, elephant: $("m_elephant").value, goldfish: $("m_goldfish").value, correctness: $("m_correctness").value}); $("checks").innerHTML = r.error ? `<span class="badc">${esc(r.error)}</span>` : '<span class="okc">Saved.</span>'; };
+    $("msave").onclick = async () => { const r = await post("/api/settings", {test_command: $("m_test").value, sandbox: $("m_sandbox").value, autonomy_level: $("m_level").value, elephant: $("m_elephant").value, goldfish: $("m_goldfish").value, correctness: $("m_correctness").value}); $("checks").innerHTML = r.error ? `<span class="badc">${esc(r.error)}</span>` : '<span class="okc">Saved.</span>'; };
     $("check").onclick = async () => { const r = await get("/api/doctor"); $("checks").innerHTML = r.checks.map(c => `<div class="${c.ok ? "okc" : "badc"}">${c.ok ? "&#10003;" : "&#10007;"} ${esc(c.text)}${c.ok ? "" : ` <span class="hint">${esc(c.fix)}</span>`}</div>`).join(""); };
   }
   $("mclose").onclick = () => $("modal").classList.remove("on");

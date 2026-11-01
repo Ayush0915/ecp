@@ -41,17 +41,24 @@ class ECP(BaseModel):
     # ---- the plan (frozen on approval) ----
     intent: str
     allowed_paths: list[str] = Field(default_factory=list)
+    new_files: list[str] = Field(default_factory=list)  # files the change will create (must be covered by allowed_paths)
     forbidden_paths: list[str] = Field(default_factory=list)
     constraints: list[str] = Field(default_factory=list)
     success_criteria: list[str] = Field(default_factory=list)
     verification: list[Check] = Field(default_factory=list)
     abort_conditions: list[str] = Field(default_factory=list)
     rollback: str = "Discard the evolution branch and return to the base commit."
-    risk: Risk = "low"
+    risk: Risk = "low"              # EFFECTIVE risk, set by the control plane's rules (gate.assess) before approval
+    risk_suggested: Risk = "low"    # Elephant's advice only: it can raise the risk, never lower it
     # ---- lock ----
     plan_hash: str = ""
     # ---- free text (part of the plan, hashed too) ----
     body: str = ""
+
+    @field_validator("body")
+    @classmethod
+    def _strip_body(cls, v: str) -> str:
+        return v.strip()  # the file stores it stripped; keeping memory and disk identical keeps the lock hash identical
 
     @field_validator("id")
     @classmethod

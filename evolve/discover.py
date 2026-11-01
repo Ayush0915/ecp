@@ -160,7 +160,7 @@ def d_coverage_and_speed(repo: Path, cfg: Config, sig: Signals) -> None:
         j = tmp / "cov.json"
         subprocess.run([py, "-m", "coverage", "json", "-o", str(j)], cwd=repo, capture_output=True, env=env)
         try:
-            files = json.loads(j.read_text())["files"]
+            files = json.loads(j.read_text(encoding="utf-8"))["files"]
         except (OSError, ValueError, KeyError):
             files = None
         if files is None:

@@ -22,7 +22,9 @@ Lives at `.evolution/ecps/ECP-0001.md`. Top part is the **plan**, bottom part is
 | `verification` | How we prove it (tests or commands) |
 | `abort_conditions` | When to stop and roll back |
 | `rollback` | How to undo |
-| `risk` | low = automatic, high = a human must say yes |
+| `new_files` | Files the change will create (must be inside `allowed_paths`) |
+| `risk` | The **effective** risk, set by fixed rules before approval: low = automatic, high = a human must say yes |
+| `risk_suggested` | Elephant's advice. It can raise the risk, never lower it |
 
 Two halves:
 
@@ -82,8 +84,15 @@ A bug fix with no new test, or with a test that already passes on the old code, 
 **5. Decide** (`evolve/gate.py`, `evolve/decide.py`)
 - Everything green and no blocking findings: **accept** (merge the branch).
 - Anything wrong: **roll back** (branch deleted, files restored).
-- Risk gate: low risk is automatic; high risk asks a human. A plan that touches a repo's
-  `protected_paths` is forced to high risk.
+- Risk gate, plain rules only (`gate.assess` on the plan, `gate.assess_diff` on the real diff). High risk when:
+  the planner suggests it; the scope touches `protected_paths` or sensitive files (dependency manifests, CI, auth,
+  secrets); the change is a feature; the type is not allowed by the governance profile; too many files are in scope;
+  or the finished diff is bigger or wider than the profile allows. A diff over `max_diff_lines` is rolled back.
+- Who says yes depends on the autonomy level in `governance.yaml`: level 1 asks a human at every gate, level 2/3 only
+  for high risk, and `human_gates` can force a human at the plan or result gate.
+- An approval names the exact plan (ECP id + plan hash). An approval for any other version is ignored.
+- The lock is checked against the ECP file **on disk** and the hash recorded at approval, before building, after
+  verifying and once more just before merging.
 - The outcome is written to `.evolution/history.jsonl`, which Elephant reads next time. That is how the system learns.
 
 ## The control plane

@@ -20,7 +20,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ValidationError
 
-from ..config import Config
+from ..config import Config, rules_path
 from ..ecp import ECP
 from ..live import emit
 from ..llm import LLM, extract_json
@@ -64,16 +64,17 @@ LENSES = [
 ]
 
 
-def roster(change_type: str, phase: str) -> list[Lens]:
-    """Which reviewers to call. Chosen by plain rules, not by an AI."""
-    return [l for l in LENSES if l.phase == phase and change_type in l.applies_to]
+def roster(change_type: str, phase: str, required: list[str] | tuple = ()) -> list[Lens]:
+    """Which reviewers to call. Chosen by plain rules, not by an AI: the lenses for this change type, plus any the
+    governance profile requires (required_lenses)."""
+    return [l for l in LENSES if l.phase == phase and (change_type in l.applies_to or l.name in required)]
 
 
 def build_context(repo: Path, ecp: ECP, phase: str, extra: dict[str, str] | None = None) -> Path:
     """Create the temporary folder a reviewer is allowed to see. Returns its path."""
     d = Path(tempfile.mkdtemp(prefix=f"goldfish-{ecp.id}-"))
     (d / "ECP.md").write_text(ecp.to_markdown() if not ecp.body else ecp.to_markdown(), encoding="utf-8")
-    rules = Path(repo) / ".evolution" / "rules.md"
+    rules = rules_path(repo)  # from the governance store, never from the repository itself
     if rules.exists():
         shutil.copy(rules, d / "RULES.md")
     n = 0
@@ -113,7 +114,11 @@ def _parse(lens: Lens, raw: str) -> list[Finding]:
     try:
         data = extract_json(raw)
         if isinstance(data, dict):
-            data = data.get("findings", [])
+            if "findings" not in data:  # any other shape is NOT "all clear"
+                raise ValueError(f"expected a JSON array or an object with 'findings', got keys {sorted(data)[:5]}")
+            data = data["findings"]
+        if not isinstance(data, list):
+            raise ValueError(f"'findings' must be a list, got {type(data).__name__}")
         out = []
         for item in data:
             item["reviewer"] = lens.name
@@ -124,9 +129,10 @@ def _parse(lens: Lens, raw: str) -> list[Finding]:
         return [Finding(reviewer=lens.name, severity="major", claim=f"Reviewer output could not be read ({e}); treat as not reviewed.")]
 
 
-def review(llm: LLM, cfg: Config, repo: Path, ecp: ECP, phase: str, extra: dict[str, str] | None = None) -> list[Finding]:
+def review(llm: LLM, cfg: Config, repo: Path, ecp: ECP, phase: str, extra: dict[str, str] | None = None,
+           required: list[str] | tuple = ()) -> list[Finding]:
     """Run every reviewer for this phase in parallel, return all findings."""
-    lenses = roster(ecp.change_type, phase)
+    lenses = roster(ecp.change_type, phase, required)
     ctx = build_context(repo, ecp, phase, extra)
     try:
         context_text = render_context(ctx)
@@ -139,9 +145,11 @@ def review(llm: LLM, cfg: Config, repo: Path, ecp: ECP, phase: str, extra: dict[
             try:
                 raw = llm.complete(f"goldfish:{lens.name}", system, context_text, model)
                 found = _parse(lens, raw)
-            except Exception as e:  # noqa: BLE001
-                emit(repo, "goldfish_done", lens=lens.name, phase=phase, findings=[], error=str(e)[:300], seconds=round(time.time() - t0, 1))
-                raise
+            except Exception as e:  # noqa: BLE001 - fail closed: a reviewer that could not answer is a blocking finding, not a crash
+                found = [Finding(reviewer=lens.name, severity="major", location="reviewer",
+                                 claim=f"REVIEWER UNAVAILABLE: {type(e).__name__}: {str(e)[:200]}; treat as not reviewed.")]
+                emit(repo, "goldfish_done", lens=lens.name, phase=phase, findings=[f.model_dump() for f in found], error=str(e)[:300], seconds=round(time.time() - t0, 1))
+                return found
             emit(repo, "goldfish_done", lens=lens.name, phase=phase, findings=[f.model_dump() for f in found], seconds=round(time.time() - t0, 1))
             return found
 

@@ -1,6 +1,7 @@
 """The live path with nothing mocked inside the app: real Azure client over HTTP, real Pi agent, real guard.
 Only the AI's brain is faked (tests/fake_azure.py), so no credentials and no money are needed.
 Needs the Pi agent installed (npm i -g @earendil-works/pi-coding-agent) and bandit/ruff/coverage; otherwise skipped."""
+from evolve.config import config_path
 import importlib.util
 import os
 import shutil
@@ -31,7 +32,7 @@ def live(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", str(Path(PI).parent) + os.pathsep + os.environ["PATH"])
     for k, v in {"AZURE_OPENAI_BASE": fake.url, "AZURE_OPENAI_DEPLOYMENT": "gpt-test", "AZURE_OPENAI_API_VERSION": "2024-10-21", "AZURE_OPENAI_API_KEY": "test-key"}.items():
         monkeypatch.setenv(k, v)
-    p = repo / ".evolution" / "config.yaml"
+    p = config_path(repo)
     c = yaml.safe_load(p.read_text())
     c["models"]["provider"] = "azure"
     c["pi"].update(backend="pi", sandbox="none", timeout_s=120)

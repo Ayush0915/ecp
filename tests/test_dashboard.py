@@ -19,7 +19,8 @@ def client(handler):
     base = f"http://127.0.0.1:{srv.server_port}"
 
     def call(path, body=None):
-        req = urllib.request.Request(base + path, data=None if body is None else json.dumps(body).encode(), method="GET" if body is None else "POST")
+        req = urllib.request.Request(base + path, data=None if body is None else json.dumps(body).encode(), method="GET" if body is None else "POST",
+                                     headers={} if body is None else {"content-type": "application/json", "x-evolve-token": handler.token})
         try:
             with urllib.request.urlopen(req, timeout=30) as r:
                 raw = r.read()
@@ -72,7 +73,7 @@ def test_only_one_run_at_a_time_and_human_can_approve(api):
     assert api("/api/start", {"request": "", "scenario": "scenarios/1_flawed_plan_caught"})["started"] is False
     for _ in range(80):  # approve both gates (plan, then result)
         if api("/api/live")["pending_approval"]:
-            api("/api/approve", {"approve": True})
+            api("/api/approve", {"approve": True, "plan_hash": api("/api/live")["pending_approval"]["plan_hash"]})
             time.sleep(0.6)
         if not api("/api/live")["running"]:
             break
@@ -88,7 +89,7 @@ def test_human_can_decline_high_risk_plan(api):
             break
         time.sleep(0.3)
     assert "HIGH risk" in api("/api/live")["pending_approval"]["question"]
-    api("/api/approve", {"approve": False})
+    api("/api/approve", {"approve": False, "plan_hash": api("/api/live")["pending_approval"]["plan_hash"]})
     api.wait_idle()
     assert api("/api/overview")["ecps"][0]["outcome"] == "rejected"
 

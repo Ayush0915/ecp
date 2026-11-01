@@ -25,7 +25,9 @@ def test_out_of_scope_edits_are_blocked_and_logged(demo_repo):
     assert res.outcome == "accepted"
     assert {b["path"] for b in res.blocked_edits} == {"inventory/api.py", ".evolution/rules.md"}
     assert "agent got creative" not in (demo_repo / "inventory" / "api.py").read_text()
-    assert "Anything goes" not in (demo_repo / ".evolution" / "rules.md").read_text()
+    assert not (demo_repo / ".evolution" / "rules.md").exists()  # the blocked write never happened (rules live in the store)
+    from evolve.config import read_rules
+    assert "Anything goes" not in read_rules(demo_repo)
     ev = Evidence(demo_repo, "ECP-0001")
     assert ev.chain_intact()
     blocked = [e for e in ev.entries() if e["kind"] == "pi_action" and not e["data"]["allowed"]]
@@ -153,5 +155,5 @@ def test_file_approval_handshake(demo_repo):
                 (run_dir / "approval.json").write_text(json.dumps({"approve": True})); return
             time.sleep(0.05)
     t = threading.Thread(target=human); t.start()
-    assert ask("Approve?") is True
+    assert ask("Approve?") == (True, "human approved via dashboard")
     t.join()

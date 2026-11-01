@@ -6,8 +6,10 @@ is exactly what is on disk and can be opened and shown as plain files.
 """
 from __future__ import annotations
 
+import hmac
 import json
 import os
+import secrets
 import subprocess
 import sys
 import threading
@@ -18,6 +20,7 @@ from urllib.parse import parse_qs, urlparse
 
 import yaml
 
+from ..config import config_path, governance_path, is_initialised, rules_path
 from ..ecp import ECP, Evidence, list_versions
 
 HERE = Path(__file__).parent
@@ -54,13 +57,15 @@ def ecp_detail(repo: Path, ecp_id: str) -> dict:
             fields, body = {}, ""
         versions.append({"n": n, "text": text, "fields": fields, "body": body})
     p = repo / ".evolution" / "ecps" / f"{ecp_id}.md"
-    return {"id": ecp_id, "file": _read(p), "versions": versions, "evidence": ev.entries(), "chain_intact": ev.chain_intact()}
+    from ..decide import anchor_status
+    return {"id": ecp_id, "file": _read(p), "versions": versions, "evidence": ev.entries(), "chain_intact": ev.chain_intact(),
+            "anchor": anchor_status(repo, ecp_id)}
 
 
 def live_state(repo: Path, runner: "Runner | None") -> dict:
     pend = repo / ".evolution" / "run" / "pending_approval.json"
     return {"running": bool(runner and runner.running()), "kind": getattr(runner, "kind", ""), "log": runner.tail() if runner else "",
-            "pending_approval": json.loads(pend.read_text()) if pend.exists() else None}
+            "pending_approval": json.loads(pend.read_text(encoding="utf-8")) if pend.exists() else None}
 
 
 def findings_state(repo: Path) -> dict:
@@ -74,19 +79,29 @@ def overview(repo: "Path | None") -> dict:
     if not repo:
         return {"connected": False}
     from ..repo import describe
-    cfgp = repo / ".evolution" / "config.yaml"
+    cfgp = config_path(repo)
     cfg = yaml.safe_load(_read(cfgp)) or {} if cfgp.exists() else {}
+    from ..governance import GovernanceError, load_governance
+    try:
+        g = load_governance(repo)
+        gov = {"level": g.autonomy_level, "describe": g.describe(), "error": ""}
+    except GovernanceError as e:
+        gov = {"level": None, "describe": "", "error": str(e)[:300]}
+    gov["store"] = str(cfgp.parent)
     prep = repo / ".evolution" / "prepare.json"
-    return {"connected": True, "repo": describe(repo), "ecps": list_ecps(repo), "config": {"provider": cfg.get("models", {}).get("provider"), "sandbox": cfg.get("pi", {}).get("sandbox"), "tests": cfg.get("test_command")},
-            **findings_state(repo), "prepare": json.loads(_read(prep)) if prep.exists() else None}
+    untrusted = repo / ".evolution" / "untrusted"
+    return {"connected": True, "repo": describe(repo), "ecps": list_ecps(repo),
+            "quarantined": sorted(f.name for f in untrusted.iterdir() if f.name != "README.txt") if untrusted.is_dir() else [], "config": {"provider": cfg.get("models", {}).get("provider"), "sandbox": cfg.get("pi", {}).get("sandbox"), "tests": cfg.get("test_command")},
+            "governance": gov, **findings_state(repo), "prepare": json.loads(_read(prep)) if prep.exists() else None}
 
 
-FILES = {"config": ".evolution/config.yaml", "rules": ".evolution/rules.md", "history": ".evolution/history.jsonl"}
+FILES = {"config": config_path, "rules": rules_path, "governance": governance_path,
+         "history": lambda repo: repo / ".evolution" / "history.jsonl"}
 
 
 def read_file(repo: Path, name: str) -> str:
     if name in FILES:
-        return _read(repo / FILES[name])
+        return _read(FILES[name](repo))
     if name.startswith("ecp:") and name[4:].replace("-", "").isalnum():
         return _read(repo / ".evolution" / "ecps" / f"{name[4:]}.md")
     return ""
@@ -175,14 +190,26 @@ SETTINGS_FIELDS = {"elephant": ("models", "elephant"), "goldfish": ("models", "g
 
 
 def get_settings(repo: Path) -> dict:
-    cfg = yaml.safe_load(_read(repo / ".evolution" / "config.yaml")) or {}
+    from ..governance import GovernanceError, load_governance
+    cfg = yaml.safe_load(_read(config_path(repo))) or {}
     m = cfg.get("models", {})
+    try:
+        level = load_governance(repo).autonomy_level
+    except GovernanceError:
+        level = None
     return {"elephant": m.get("elephant", ""), "goldfish": m.get("goldfish", ""), "correctness": m.get("correctness", ""),
-            "test_command": cfg.get("test_command", ""), "sandbox": cfg.get("pi", {}).get("sandbox", "none")}
+            "test_command": cfg.get("test_command", ""), "sandbox": cfg.get("pi", {}).get("sandbox", "none"), "autonomy_level": level,
+            "store": str(config_path(repo).parent)}
 
 
 def save_settings(repo: Path, body: dict) -> None:
-    p = repo / ".evolution" / "config.yaml"
+    from ..governance import GovernanceError, save_governance
+    if "autonomy_level" in body:
+        try:
+            save_governance(repo, {"autonomy_level": int(body["autonomy_level"])})
+        except (GovernanceError, ValueError, TypeError) as e:
+            raise ValueError(f"autonomy level must be 0, 1, 2 or 3 ({str(e)[:120]})") from None
+    p = config_path(repo)
     cfg = yaml.safe_load(_read(p)) or {}
     for k, v in body.items():
         if k not in SETTINGS_FIELDS:
@@ -197,6 +224,7 @@ def save_settings(repo: Path, body: dict) -> None:
 
 # ------------------------------------------------------------------ http
 def make_handler(repo: "Path | None", auto_prepare: bool = True, workdir: Path | None = None, test_scenarios: Path | None = None):
+    token = secrets.token_urlsafe(24)  # proves a POST came from the page this server served (stops other websites)
     st = {"repo": repo, "runner": Runner(repo) if repo else None,
           "ingest": {"state": "idle", "step": "", "percent": 0, "lines": [], "error": "", "spec": ""}}
     lock = threading.Lock()
@@ -212,7 +240,7 @@ def make_handler(repo: "Path | None", auto_prepare: bool = True, workdir: Path |
             ing["step"], ing["percent"] = step, pct
         try:
             path, src, new = ingest(spec, workdir, log, progress)
-            if not (path / ".evolution" / "config.yaml").exists():
+            if not is_initialised(path):
                 init_repo(path)
                 new = True
             with lock:
@@ -229,6 +257,28 @@ def make_handler(repo: "Path | None", auto_prepare: bool = True, workdir: Path |
         def log_message(self, *a):  # keep the terminal quiet
             pass
 
+        def _allowed_hosts(self) -> set[str]:
+            bind, port = self.server.server_address[:2]
+            hosts = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
+            if bind not in ("", "0.0.0.0", "::"):
+                hosts.add(f"{bind}:{port}")
+            return hosts
+
+        def _refuse(self, post: bool) -> str:
+            """Why this request must be refused, or "" if it is fine. Defends against other websites (CSRF) and DNS rebinding."""
+            if (self.headers.get("host") or "").lower() not in self._allowed_hosts():
+                return "unexpected Host header"
+            if not post:
+                return ""
+            origin = (self.headers.get("origin") or "").lower()
+            if origin and origin.removeprefix("http://") not in self._allowed_hosts():
+                return "cross-origin request refused"
+            if not (self.headers.get("content-type") or "").lower().startswith("application/json"):
+                return "content-type must be application/json"
+            if not hmac.compare_digest(self.headers.get("x-evolve-token") or "", token):
+                return "missing or wrong page token (reload the page)"
+            return ""
+
         def _json(self, obj, code=200):
             b = json.dumps(obj).encode()
             self.send_response(code); self.send_header("content-type", "application/json"); self.send_header("content-length", str(len(b))); self.send_header("cache-control", "no-store"); self.end_headers(); self.wfile.write(b)
@@ -237,9 +287,12 @@ def make_handler(repo: "Path | None", auto_prepare: bool = True, workdir: Path |
             u = urlparse(self.path)
             repo, runner = st["repo"], st["runner"]
             q = parse_qs(u.query)
+            why = self._refuse(post=False)
+            if why:
+                return self._json({"error": why}, 403)
             try:
                 if u.path == "/":
-                    b = (HERE / "index.html").read_bytes()
+                    b = (HERE / "index.html").read_text(encoding="utf-8").replace("__EVOLVE_TOKEN__", token).encode("utf-8")
                     self.send_response(200); self.send_header("content-type", "text/html; charset=utf-8"); self.send_header("content-length", str(len(b))); self.end_headers(); self.wfile.write(b)
                 elif u.path == "/api/overview":
                     self._json(overview(repo))
@@ -268,7 +321,16 @@ def make_handler(repo: "Path | None", auto_prepare: bool = True, workdir: Path |
 
         def do_POST(self):
             n = int(self.headers.get("content-length") or 0)
-            body = json.loads(self.rfile.read(n) or b"{}")
+            raw = self.rfile.read(n)
+            why = self._refuse(post=True)
+            if why:
+                return self._json({"error": why}, 403)
+            try:
+                body = json.loads(raw or b"{}")
+            except ValueError:
+                return self._json({"error": "body must be JSON"}, 400)
+            if not isinstance(body, dict):
+                return self._json({"error": "body must be a JSON object"}, 400)
             u = urlparse(self.path)
             with lock:
                 repo, runner = st["repo"], st["runner"]
@@ -315,11 +377,24 @@ def make_handler(repo: "Path | None", auto_prepare: bool = True, workdir: Path |
             if u.path == "/api/approve":
                 run = repo / ".evolution" / "run"
                 run.mkdir(parents=True, exist_ok=True)
-                (run / "approval.json").write_text(json.dumps({"approve": bool(body.get("approve"))}))
+                pend = run / "pending_approval.json"
+                try:
+                    pending = json.loads(pend.read_text(encoding="utf-8")) if pend.exists() else None
+                except ValueError:
+                    pending = None
+                if not pending:
+                    return self._json({"error": "nothing is waiting for a decision"}, 409)
+                if pending.get("plan_hash") and body.get("plan_hash") != pending["plan_hash"]:
+                    return self._json({"error": "this decision names a different version of the plan; reload the page and look again"}, 409)
+                import getpass
+                (run / "approval.json").write_text(json.dumps({"approve": bool(body.get("approve")), "ecp_id": pending.get("ecp_id", ""),
+                                                               "plan_hash": pending.get("plan_hash", ""), "approver": getpass.getuser(),
+                                                               "time": time.time()}), encoding="utf-8")
                 return self._json({"ok": True})
             self._json({"error": "not found"}, 404)
 
     H.state = st
+    H.token = token
     return H
 
 

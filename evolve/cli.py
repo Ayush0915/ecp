@@ -12,7 +12,7 @@ from pathlib import Path
 import yaml
 
 from . import engine, goldfish
-from .config import init_repo, load_config, git
+from .config import config_path, init_repo, is_initialised, load_config, git
 from .ecp import ECP, Evidence
 from .llm import make_llm
 
@@ -21,35 +21,52 @@ PROJECT = Path(__file__).resolve().parent.parent
 
 def _ask_factory(yes: bool, mode: str = "terminal", repo: Path | None = None):
     """How to ask a human for a high-risk approval: in the terminal, or through the dashboard (a small file handshake)."""
-    def ask(q: str) -> bool:
+    def ask(q: str, ctx: dict | None = None) -> tuple[bool, str]:
+        """ctx (from the gate) = {ecp_id, plan_hash, stage, risk, reasons}: an approval must name that exact plan."""
+        import getpass
+        ctx = ctx or {}
         if yes:
             print(f"  (auto-yes) {q}")
-            return True
+            return True, "auto-yes (--yes flag, no human asked)"
         if mode == "file":
             import time
             run = Path(repo) / ".evolution" / "run"
             run.mkdir(parents=True, exist_ok=True)
             ans = run / "approval.json"
             ans.unlink(missing_ok=True)
-            (run / "pending_approval.json").write_text(json.dumps({"question": q, "time": time.time()}), encoding="utf-8")
+            (run / "pending_approval.json").write_text(json.dumps({"question": q, "time": time.time(), **ctx}), encoding="utf-8")
             print(f"  Waiting for a human decision in the dashboard: {q}")
             try:
                 for _ in range(60 * 60):  # up to an hour
                     if ans.exists():
-                        return bool(json.loads(ans.read_text()).get("approve"))
+                        try:
+                            a = json.loads(ans.read_text(encoding="utf-8"))
+                        except ValueError:
+                            a = {}
+                        if ctx.get("plan_hash") and (a.get("plan_hash") != ctx["plan_hash"] or a.get("ecp_id") != ctx.get("ecp_id")):
+                            print("  Ignored an approval that names a different plan (stale or for another ECP).")
+                            ans.unlink(missing_ok=True)
+                            continue
+                        ok = bool(a.get("approve"))
+                        by = f" by {a['approver']}" if a.get("approver") else ""
+                        return ok, ("human approved via dashboard" if ok else "human declined via dashboard") + by
                     time.sleep(1)
-                return False
+                return False, "no decision within an hour (declined)"
             finally:
                 (run / "pending_approval.json").unlink(missing_ok=True)
                 ans.unlink(missing_ok=True)
-        return input(f"  {q} [y/N] ").strip().lower() == "y"
+        if ctx.get("plan_hash"):
+            print(f"  (plan {ctx.get('ecp_id')} hash {ctx['plan_hash']})")
+        ok = input(f"  {q} [y/N] ").strip().lower() == "y"
+        return ok, ("human approved in the terminal" if ok else "human declined in the terminal") + f" by {getpass.getuser()}"
     return ask
 
 
 def cmd_init(a):
     r = init_repo(Path(a.repo))
     print("Initialised .evolution/ ->", ", ".join(r["created"]) or "already set up")
-    print("Detected test command:", r["test_command"] or "(none; set test_command in .evolution/config.yaml)")
+    print("Detected test command:", r["test_command"] or "(none; set test_command in Settings)")
+    print("Settings, rules and governance live outside the repo in:", r["store"])
 
 
 def _load_scenario(path):
@@ -78,7 +95,7 @@ def failing_tests_request(repo: Path, cfg) -> str:
 
 def cmd_run(a):
     repo = resolve_repo(a.repo)
-    if not (repo / ".evolution" / "config.yaml").exists():
+    if not is_initialised(repo):
         print("First time on this repo: setting up .evolution/ ...")
         init_repo(repo)
     cfg = load_config(repo)
@@ -97,7 +114,11 @@ def cmd_run(a):
         request = (request + "\n\n" if request else "") + failing_tests_request(repo, cfg)
     if not request:
         sys.exit("Give a change request, e.g.  evolve run \"Stock can go negative\"  (or --from-file issue.md, or --from-failing-tests)")
-    res = engine.run(repo, request, llm, cfg, actions, _ask_factory(a.yes, getattr(a, "ask", "terminal"), repo), print, finding)
+    from .governance import GovernanceError
+    try:
+        res = engine.run(repo, request, llm, cfg, actions, _ask_factory(a.yes, getattr(a, "ask", "terminal"), repo), print, finding)
+    except GovernanceError as e:
+        sys.exit(f"Governance: {e}")
     print(f"\nOutcome: {res.outcome.upper()}  ({res.ecp.id})")
     for r in res.reasons:
         print("  -", r)
@@ -120,7 +141,9 @@ def cmd_show(a):
     ecp = ECP.load(repo / ".evolution" / "ecps" / f"{a.id}.md")
     print(ecp.to_markdown())
     ev = Evidence(repo, a.id)
-    print("--- evidence trail (chain intact: %s) ---" % ev.chain_intact())
+    from .decide import anchor_status
+    anchor = anchor_status(repo, a.id)
+    print("--- evidence trail (chain intact: %s; git anchor: %s, %s) ---" % (ev.chain_intact(), anchor["state"], anchor["note"]))
     for e in ev.entries():
         print(e["time"], e["kind"], json.dumps(e["data"], ensure_ascii=False)[:160])
 
@@ -149,19 +172,24 @@ def doctor_checks(repo: Path, ping: bool = False, run_tests: bool = True) -> lis
     add = lambda ok, name, hint="": rows.append((ok, name, hint))
     add(_have("git"), "git installed", "install git")
     add(sys.version_info >= (3, 10), f"python {sys.version_info.major}.{sys.version_info.minor} (need 3.10+)", "install Python 3.10 or newer")
-    cfgp = repo / ".evolution" / "config.yaml"
-    if not cfgp.exists():
+    if not is_initialised(repo):
         add(False, "repo not set up", "run: evolve init")
         return rows
     cfg = load_config(repo)
     add(True, f"repo set up: provider={cfg.models.provider}, pi={cfg.pi.backend}, sandbox={cfg.pi.sandbox}")
+    add(True, f"settings and governance stored in {config_path(repo).parent}")
+    from .governance import GovernanceError, load_governance
+    try:
+        add(True, f"governance: {load_governance(repo).describe()}")
+    except GovernanceError as e:
+        add(False, "governance.yaml is invalid", str(e)[:200])
     is_git = (repo / ".git").exists()
     add(is_git, "repo is a git repo", "run git init and commit")
     if is_git:
         dirty = git(repo, "status", "--porcelain", "--", ".", ":(exclude).evolution", check=False)
         add(not dirty, "working tree is clean", "commit or stash your changes")
         add(bool(git(repo, "rev-parse", "HEAD", check=False)), "repo has at least one commit", "make an initial commit")
-    add(bool(cfg.test_command), f"test command: {cfg.test_command or '(none)'}", "set test_command in .evolution/config.yaml; without tests nothing can be verified")
+    add(bool(cfg.test_command), f"test command: {cfg.test_command or '(none)'}", "set the test command in Settings; without tests nothing can be verified")
     if cfg.test_command and run_tests:
         from .verify import run_cmd
         ok, out = run_cmd(repo, cfg.test_command)
@@ -220,7 +248,7 @@ def cmd_status(a):
     if not h.exists():
         print("No evolutions yet.")
         return
-    for l in h.read_text().splitlines():
+    for l in h.read_text(encoding="utf-8").splitlines():
         d = json.loads(l)
         print(f"{d['id']}  {d['outcome']:<11} {d['change_type']:<11} {d['title']}")
 
@@ -228,7 +256,7 @@ def cmd_status(a):
 def cmd_prepare(a):
     from .prepare import prepare_environment
     repo = resolve_repo(a.repo)
-    if not (repo / ".evolution" / "config.yaml").exists():
+    if not is_initialised(repo):
         init_repo(repo)
     prepare_environment(repo, print)
 
@@ -243,7 +271,7 @@ def cmd_start(a):
 
 def cmd_discover(a):
     repo = resolve_repo(a.repo)
-    if not (repo / ".evolution" / "config.yaml").exists():
+    if not is_initialised(repo):
         print("First time on this repo: setting up .evolution/ ...")
         init_repo(repo)
     cfg = load_config(repo)

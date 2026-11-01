@@ -106,12 +106,14 @@ def test_a_finding_goes_through_the_whole_core(shop):
 
 @needs_tools
 def test_dashboard_discover_then_evolve(shop):
-    srv = ThreadingHTTPServer(("127.0.0.1", 0), dash.make_handler(shop, auto_prepare=False, test_scenarios=DEMO))
+    handler = dash.make_handler(shop, auto_prepare=False, test_scenarios=DEMO)
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     base = f"http://127.0.0.1:{srv.server_port}"
 
     def call(path, body=None):
-        req = urllib.request.Request(base + path, data=None if body is None else json.dumps(body).encode(), method="GET" if body is None else "POST")
+        req = urllib.request.Request(base + path, data=None if body is None else json.dumps(body).encode(), method="GET" if body is None else "POST",
+                                     headers={} if body is None else {"content-type": "application/json", "x-evolve-token": handler.token})
         try:
             with urllib.request.urlopen(req, timeout=60) as r:
                 return json.loads(r.read())

@@ -35,12 +35,25 @@ evolve start                # opens http://127.0.0.1:8765
 Then paste a repository link and press Connect. Full steps, accepted link forms and troubleshooting are in
 [docs/SETUP.md](docs/SETUP.md). What each part of the page shows is in [docs/DASHBOARD.md](docs/DASHBOARD.md).
 
+## Where the rules live (outside the repository)
+
+A repository must not be able to change its own governance, so its settings are kept in a store on this computer:
+
+```
+~/.evolve/repos/<name>-<hash>/     (set EVOLVE_HOME to move it)
+  config.yaml              test command, sandbox, optional per-role deployments
+  rules.md                 rules every plan must follow
+  governance.yaml          autonomy level (0-3), risk thresholds, gates that always ask a human, extra reviewers
+```
+
+Autonomy levels: **0** discover only, **1** a human approves every plan and result, **2** low risk runs on its own and
+high risk asks a human (default), **3** as 2 and may pick its own findings. Change it in Settings or in `governance.yaml`.
+Each run records the profile it ran under, with fingerprints of the rules and settings, in its evidence log.
+
 ## What it leaves in the repository
 
 ```
 .evolution/
-  config.yaml              test command, sandbox, optional per-role deployments
-  rules.md                 rules every plan must follow
   source.json              where the repository came from
   findings/F-001.json      each discovered problem, with its evidence
   ecps/ECP-0001.md         the plan (YAML header + Markdown), hash-locked on approval
@@ -48,7 +61,11 @@ Then paste a repository link and press Connect. Full steps, accepted link forms 
   evidence/ECP-0001.jsonl  append-only, hash-chained record of what happened
   events/ECP-0001.jsonl    the live feed, kept so a run can be replayed
   history.jsonl            what past changes taught (the Elephant reads it next time)
+  untrusted/               settings a cloned repository tried to ship (ignored, kept for reading)
 ```
+
+Each record commit carries an `Evidence-Head: ECP-0001 <hash>` trailer, so rewriting an evidence log after the fact
+shows up in `evolve show`.
 
 ## Commands
 

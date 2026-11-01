@@ -4,12 +4,14 @@
 """
 from __future__ import annotations
 
+import traceback
 from pathlib import Path
 from typing import Callable
 
 from . import decide as decide_mod
-from . import elephant, gate, goldfish, lifecycle, pi_runner, verify as verify_mod
+from . import elephant, gate, goldfish, lifecycle, pi_runner, plancheck, verify as verify_mod
 from .config import Config, git
+from .governance import GovernanceError, load_governance, snapshot
 from .ecp import ECP, Evidence, save_version
 from .goldfish.runner import Finding, blocking
 from .llm import LLM
@@ -19,7 +21,7 @@ from .live import emit, save_as
 class RunResult:
     def __init__(self):
         self.ecp: ECP | None = None
-        self.outcome = ""  # accepted | rolled_back | rejected
+        self.outcome = ""  # accepted | rolled_back | rejected | aborted
         self.reasons: list[str] = []
         self.rounds = 0
         self.before_findings: list[list[Finding]] = []
@@ -33,7 +35,7 @@ def _ecp_view(ecp: ECP) -> dict:
     return {"id": ecp.id, "title": ecp.title, "change_type": ecp.change_type, "intent": ecp.intent, "allowed_paths": ecp.allowed_paths,
             "forbidden_paths": ecp.forbidden_paths, "constraints": ecp.constraints, "success_criteria": ecp.success_criteria,
             "verification": [v.model_dump() if hasattr(v, "model_dump") else v for v in ecp.verification], "abort_conditions": ecp.abort_conditions,
-            "rollback": ecp.rollback, "risk": ecp.risk, "body": ecp.body}
+            "rollback": ecp.rollback, "risk": ecp.risk, "risk_suggested": ecp.risk_suggested, "new_files": ecp.new_files, "body": ecp.body}
 
 
 def _dirty(repo: Path) -> str:
@@ -63,10 +65,36 @@ def run(
 def _run(repo, request, llm, cfg, pi_actions, ask, log, finding):
     repo = Path(repo)
     res = RunResult()
+    gov = load_governance(repo)
+    if gov.autonomy_level == 0:
+        raise GovernanceError("Autonomy level 0 allows discovery only. Raise autonomy_level in governance.yaml (Settings) to plan and change code.")
     if _dirty(repo):
         raise RuntimeError("The repo has uncommitted changes. Commit or stash them first so a rollback is safe.")
     base_commit = git(repo, "rev-parse", "HEAD")
     base_branch = cfg.base_branch or git(repo, "rev-parse", "--abbrev-ref", "HEAD")
+    ctx = {"ev": None, "branched": False, "gov": gov}
+    try:
+        return _steps(repo, request, llm, cfg, pi_actions, ask, log, finding, res, ctx, base_commit, base_branch)
+    except Exception as e:  # noqa: BLE001 - any failure after a plan exists must end in a clean, recorded state
+        if res.ecp is None:
+            raise  # nothing was planned yet: nothing to undo or record
+        return _abort(repo, res, ctx, base_branch, log, e)
+
+
+def _abort(repo, res, ctx, base_branch, log, e: Exception) -> RunResult:
+    """Something broke mid-run (AI service down, git failure, a bug). Undo every code change, record why, close the ECP."""
+    ecp = res.ecp
+    ev = ctx["ev"] or Evidence(repo, ecp.id)
+    ev.add("abort", {"error": f"{type(e).__name__}: {str(e)[:500]}", "traceback_tail": traceback.format_exc()[-1500:],
+                     "status_at_abort": ecp.status, "branched": ctx["branched"]})
+    emit(repo, "abort", error=f"{type(e).__name__}: {str(e)[:300]}", status=ecp.status)
+    log(f"ABORTED ({type(e).__name__}): {e}")
+    res.outcome = "aborted"
+    res.reasons = [f"aborted: {type(e).__name__}: {str(e)[:300]}"]
+    return _finish(repo, ecp, res, ev, base_branch, log, plan_only=not ctx["branched"])
+
+
+def _steps(repo, request, llm, cfg, pi_actions, ask, log, finding, res, ctx, base_commit, base_branch):
 
     # ---- 1. PLAN (Elephant) -------------------------------------------------
     log("Elephant is drafting the ECP...")
@@ -75,6 +103,9 @@ def _run(repo, request, llm, cfg, pi_actions, ask, log, finding):
     res.ecp = ecp
     ecp.save(repo)
     ev = Evidence(repo, ecp.id)
+    ctx["ev"] = ev
+    gov = ctx["gov"]
+    ev.add("governance", snapshot(repo, gov))
     ev.add("request", {"text": request})
     if finding:
         ev.add("finding", {"id": finding["id"], "title": finding["title"], "metric": finding["metric"], "evidence": finding["evidence"],
@@ -88,11 +119,13 @@ def _run(repo, request, llm, cfg, pi_actions, ask, log, finding):
     # ---- 2. REVIEW LOOP (Goldfish before) ----------------------------------
     for round_no in range(1, cfg.max_revise_rounds + 2):
         res.rounds = round_no
-        names = [l.name for l in goldfish.roster(ecp.change_type, "before")]
+        required = gov.required_lenses.get(ecp.change_type, [])
+        names = [l.name for l in goldfish.roster(ecp.change_type, "before", required)]
         log(f"Review round {round_no}: Goldfish reviewers {', '.join(names)}")
         emit(repo, "review_start", phase="before", round=round_no, lenses=names)
-        findings = goldfish.review(llm, cfg, repo, ecp, "before")
-        structural = [Finding(reviewer="completeness", severity="major", location="ECP", claim=p) for p in ecp.problems()]
+        findings = goldfish.review(llm, cfg, repo, ecp, "before", required=required)
+        structural = [Finding(reviewer="completeness", severity="major", location="ECP", claim=p)
+                      for p in dict.fromkeys(ecp.problems() + plancheck.plan_problems(ecp, repo, gov))]
         findings += structural
         res.before_findings.append(findings)
         ev.add("review_before", {"round": round_no, "findings": [f.model_dump() for f in findings]})
@@ -120,18 +153,26 @@ def _run(repo, request, llm, cfg, pi_actions, ask, log, finding):
     lifecycle.transition(ecp, "reviewed", repo, f"after {res.rounds} round(s)")
 
     # ---- 3. APPROVE (risk gate, then LOCK) ----------------------------------
-    go, how = gate.decide(ecp, cfg, "Approve this plan for execution?", ask)
-    ev.add("gate_plan", {"go": go, "how": how, "risk": gate.effective_risk(ecp, cfg)})
-    log(f"Gate (plan): {how}")
-    emit(repo, "gate", stage="plan", go=go, how=how, risk=gate.effective_risk(ecp, cfg))
+    risk, why = gate.assess(ecp, cfg, gov, repo)
+    ecp.risk = risk  # the effective risk is part of the plan that gets locked
+    ecp.save(repo)
+    plan_hash = ecp.compute_hash()
+    ask_ctx = {"ecp_id": ecp.id, "plan_hash": plan_hash, "stage": "plan", "risk": risk, "reasons": why}
+    go, how = gate.decide(ecp, cfg, "Approve this plan for execution?", ask, gov, "plan", risk, why, ask_ctx)
+    ev.add("gate_plan", {"go": go, "how": how, "risk": risk, "risk_reasons": why, "plan_hash": plan_hash, "autonomy": gov.autonomy_level})
+    log(f"Gate (plan): {how}  [risk {risk}{': ' + '; '.join(why) if why else ''}]")
+    emit(repo, "gate", stage="plan", go=go, how=how, risk=risk, reasons=why)
     if not go:
         res.outcome, res.reasons = "rejected", [f"Plan not approved ({how})."]
         return _finish(repo, ecp, res, ev, base_branch, log, plan_only=True)
+    if ECP.load(repo / ".evolution" / "ecps" / f"{ecp.id}.md").compute_hash() != plan_hash or ecp.compute_hash() != plan_hash:
+        raise lifecycle.BadTransition(f"{ecp.id}: the plan changed while it was waiting for approval; the approval does not cover it")
     lifecycle.transition(ecp, "approved", repo, how)
     log(f"ECP locked (hash {ecp.plan_hash}).")
     emit(repo, "locked", hash=ecp.plan_hash)
 
     # ---- 4. BUILD (Pi) -------------------------------------------------------
+    ctx["branched"] = True  # from here on, a failure must roll the branch back
     pi_runner.start_branch(repo, ecp)
     lifecycle.transition(ecp, "executing", repo)
     log(f"Pi is building on branch evolve/{ecp.id} (backend: {cfg.pi.backend})...")
@@ -156,10 +197,11 @@ def _run(repo, request, llm, cfg, pi_actions, ask, log, finding):
     lifecycle.transition(ecp, "verified", repo)
 
     # ---- 6. POST-REVIEW (Goldfish after) -------------------------------------
-    names = [l.name for l in goldfish.roster(ecp.change_type, "after")]
+    required = gov.required_lenses.get(ecp.change_type, [])
+    names = [l.name for l in goldfish.roster(ecp.change_type, "after", required)]
     log(f"Goldfish reviewers (after): {', '.join(names)}")
     emit(repo, "review_start", phase="after", round=1, lenses=names)
-    after = goldfish.review(llm, cfg, repo, ecp, "after", {"DIFF.patch": v.diff or "(no changes)", "TEST_OUTPUT.txt": v.test_output})
+    after = goldfish.review(llm, cfg, repo, ecp, "after", {"DIFF.patch": v.diff or "(no changes)", "TEST_OUTPUT.txt": v.test_output}, required=required)
     res.after_findings = after
     ev.add("review_after", {"findings": [f.model_dump() for f in after]})
     emit(repo, "review_done", phase="after", round=1, blocking=len(blocking(after)), findings=[f.model_dump() for f in after])
@@ -185,11 +227,17 @@ def _run(repo, request, llm, cfg, pi_actions, ask, log, finding):
         reasons.append("Pi made no changes")
     for f in blocking(after):
         reasons.append(f"{f.reviewer} [{f.severity}]: {f.claim}")
+    drisk, dwhy, hard = gate.assess_diff(v.changed_files, v.diff, cfg, gov)
+    reasons += hard
     if not reasons:
-        go, how = gate.decide(ecp, cfg, "Keep this change?", ask)
-        ev.add("gate_result", {"go": go, "how": how})
-        log(f"Gate (result): {how}")
-        emit(repo, "gate", stage="result", go=go, how=how, risk=gate.effective_risk(ecp, cfg))
+        prisk, pwhy = gate.assess(ecp, cfg, gov, repo)
+        risk = "high" if "high" in (prisk, drisk) else "low"
+        why = list(dict.fromkeys(pwhy + dwhy))
+        ask_ctx = {"ecp_id": ecp.id, "plan_hash": ecp.plan_hash, "stage": "result", "risk": risk, "reasons": why}
+        go, how = gate.decide(ecp, cfg, "Keep this change?", ask, gov, "result", risk, why, ask_ctx)
+        ev.add("gate_result", {"go": go, "how": how, "risk": risk, "risk_reasons": why, "plan_hash": ecp.plan_hash, "autonomy": gov.autonomy_level})
+        log(f"Gate (result): {how}  [risk {risk}{': ' + '; '.join(why) if why else ''}]")
+        emit(repo, "gate", stage="result", go=go, how=how, risk=risk, reasons=why)
         if not go:
             reasons.append(f"Result not approved ({how}).")
     res.reasons = reasons
@@ -201,22 +249,24 @@ def _finish(repo, ecp, res, ev, base_branch, log, plan_only=False) -> RunResult:
     summary = "; ".join(res.reasons) if res.reasons else "all checks passed"
     if plan_only:
         # never executed: nothing to undo, just close the ECP
-        if ecp.status == "reviewed" or ecp.status == "proposed":
-            if ecp.status == "proposed":
-                lifecycle.transition(ecp, "reviewed", repo, "closing without execution")
+        if ecp.status == "proposed":
+            lifecycle.transition(ecp, "reviewed", repo, "closing without execution")
+        if ecp.status != "decided":
             lifecycle.transition(ecp, "decided", repo, res.outcome)
     else:
         if res.outcome == "accepted":
+            lifecycle.assert_lock(ecp, repo)  # last check before anything is merged
             decide_mod.accept(repo, ecp, base_branch)
             log(f"ACCEPTED: change merged into {base_branch}.")
         else:
             decide_mod.rollback(repo, ecp, base_branch)
             log("ROLLED BACK: " + summary)
-        lifecycle.transition(ecp, "decided", repo, res.outcome)
+        if ecp.status != "decided":
+            lifecycle.transition(ecp, "decided", repo, res.outcome)
     ev.add("decision", {"outcome": res.outcome, "reasons": res.reasons})
     emit(repo, "decision", outcome=res.outcome, reasons=res.reasons, ecp=ecp.id)
     decide_mod.remember(repo, ecp, res.outcome, summary)
     decide_mod.commit_records(repo, ecp, res.outcome)
-    if plan_only:
+    if plan_only and res.outcome != "aborted":
         log("REJECTED: " + summary)
     return res

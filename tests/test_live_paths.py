@@ -3,6 +3,7 @@
   - a fake `pi` program (checks how Pi is launched and how its action log is read back)
   - the exact podman command line
 """
+from evolve.config import config_path
 import json
 import os
 import stat
@@ -73,7 +74,7 @@ def azure_server(monkeypatch):
 
 
 def _azure_repo(demo_repo):
-    p = demo_repo / ".evolution" / "config.yaml"
+    p = config_path(demo_repo)
     c = yaml.safe_load(p.read_text()); c["models"]["provider"] = "azure"; p.write_text(yaml.safe_dump(c))
     return load_config(demo_repo)
 
@@ -203,7 +204,7 @@ def test_doctor_flags_missing_azure_env_and_failing_baseline(demo_repo, monkeypa
     for k in ("AZURE_OPENAI_API_KEY", "AZURE_OPENAI_BASE", "AZURE_OPENAI_DEPLOYMENT", "AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_TENANTID"):
         monkeypatch.delenv(k, raising=False)
     cfg = _azure_repo(demo_repo)
-    p = demo_repo / ".evolution" / "config.yaml"
+    p = config_path(demo_repo)
     c = yaml.safe_load(p.read_text()); c["test_command"] = "false"; p.write_text(yaml.safe_dump(c))
     bad = " | ".join(name for ok, name, _ in doctor_checks(demo_repo) if not ok)
     assert "AZURE_OPENAI_BASE is set" in bad and "AZURE_OPENAI_DEPLOYMENT is set" in bad and "Azure credentials" in bad and "tests pass BEFORE any change (baseline)" in bad

@@ -21,6 +21,8 @@ from typing import Callable
 
 import yaml
 
+from .config import GOVERNANCE_FILES, quarantine_repo_governance
+
 DEPTH = 500
 LANGS = {".py": "Python", ".js": "JavaScript", ".jsx": "JavaScript", ".ts": "TypeScript", ".tsx": "TypeScript", ".java": "Java", ".go": "Go", ".rs": "Rust",
          ".rb": "Ruby", ".php": "PHP", ".c": "C", ".h": "C", ".cpp": "C++", ".cc": "C++", ".cs": "C#", ".kt": "Kotlin", ".swift": "Swift", ".scala": "Scala"}
@@ -232,7 +234,11 @@ def ingest(spec: str, workdir: Path, log: Callable[[str], None] = print, progres
         dirty = _git(["-C", str(dest), "status", "--porcelain", "--", ".", ":(exclude).evolution"]).stdout.strip()
         cur = _git(["-C", str(dest), "rev-parse", "--abbrev-ref", "HEAD"]).stdout.strip()
         if r.returncode == 0 and not dirty and cur == (branch or cur):
+            before = _git(["-C", str(dest), "rev-parse", "HEAD"]).stdout.strip()
             _git(["-C", str(dest), "merge", "--ff-only", "FETCH_HEAD"])
+            touched = _git(["-C", str(dest), "diff", "--name-only", before, "HEAD", "--", *(f".evolution/{n}" for n in GOVERNANCE_FILES)]).stdout.strip()
+            if touched:
+                _quarantine(dest, "the update from the server changed them", log)
         elif dirty:
             log("  It has uncommitted changes, so it was not updated.")
         _finish(dest, src)
@@ -243,8 +249,16 @@ def ingest(spec: str, workdir: Path, log: Callable[[str], None] = print, progres
     code, text = _stream(cmd, log, progress)
     if code != 0:
         raise RepoError(friendly_git_error(text, src.host))
+    _quarantine(dest, "they came with the cloned repository", log)
     _finish(dest, src)
     return dest, src, True
+
+
+def _quarantine(dest: Path, why: str, log: Callable[[str], None]) -> None:
+    moved = quarantine_repo_governance(dest, why)
+    if moved:
+        log(f"WARNING: ignored {', '.join(moved)} because {why}; a repository cannot set its own rules or test command. "
+            "They are kept in .evolution/untrusted/ to read.")
 
 
 def _finish(dest: Path, src: Source) -> None:
